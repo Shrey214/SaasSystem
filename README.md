@@ -16,9 +16,9 @@ SaaS Platform
 
 | | |
 |---|---|
-| Stage | **1 done — bounded contexts, service boundaries, communication, data ownership** |
-| Next | Stage 2 — PostgreSQL + pgAdmin via Docker Compose |
-| Services running | none yet — Stage 3 brings up the first one |
+| Stage | **2 done — PostgreSQL 17 + pgAdmin running, 13 databases, isolation verified** |
+| Next | Stage 3 — solution scaffold + BuildingBlocks |
+| Services running | none yet — Stage 4 brings up the first one |
 | Frontend | deliberately last (Stage 23) |
 | AI/ML | parked — [ADR-0007](docs/adr/0007-defer-ai-ml-keep-the-data.md) |
 
@@ -62,8 +62,27 @@ Everything free for the whole learning phase.
 
 ## Running it
 
-Nothing to run yet — Stage 2 brings up PostgreSQL, Stage 3 the first
-service. Instructions land here as they become true.
+```powershell
+./infra/scripts/up.ps1               # start postgres + pgAdmin
+./infra/scripts/verify-isolation.ps1 # prove the service boundary holds
+./infra/scripts/down.ps1             # stop (add -Purge to delete data)
+```
+
+`up.ps1` creates `infra/docker/.env` from `.env.example` on first run.
+Add `-Fresh` to wipe the volumes and re-run the database init scripts —
+needed after editing anything in `infra/docker/postgres/init/`, because
+those scripts only execute on an empty volume.
+
+| | |
+|---|---|
+| pgAdmin | http://localhost:5050 |
+| PostgreSQL | `localhost:5432`, user `postgres` |
+| Databases | 13 x `hs_<service>`, each with its own login role |
+
+`verify-isolation.ps1` is the one that matters: it checks each role can
+reach its own database and that all 156 cross-service combinations are
+refused. Creating 13 databases is easy; a cluster with no isolation looks
+identical until you try the connection that should fail.
 
 ## Repository layout
 

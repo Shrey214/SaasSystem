@@ -28,6 +28,13 @@ Dockerfile        text eol=lf
 *.ts              text eol=lf
 *.tsx             text eol=lf
 
+# Docker Compose reads .env on the host. CRLF here puts a trailing 
+# inside every variable value, which lands in passwords and connection
+# strings and is very hard to spot.
+.env              text eol=lf
+.env.*            text eol=lf
+*.env             text eol=lf
+
 # The original brief - leave exactly as written.
 Goal/*.txt        text eol=lf
 

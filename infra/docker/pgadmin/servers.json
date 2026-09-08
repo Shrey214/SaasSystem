@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "HotelSaas (local)",
+      "Group": "HotelSaas",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "postgres",
+      "Username": "postgres",
+      "SSLMode": "prefer",
+      "Comment": "Connects over the compose network, so the host is 'postgres', not localhost. Password is not stored here - pgAdmin asks once and remembers."
+    }
+  }
+}
