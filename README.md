@@ -16,11 +16,11 @@ SaaS Platform
 
 | | |
 |---|---|
-| Stage | **0 — repository foundation** |
-| Next | Stage 1 — bounded contexts and service boundaries |
-| Services running | none yet |
+| Stage | **1 done — bounded contexts, service boundaries, communication, data ownership** |
+| Next | Stage 2 — PostgreSQL + pgAdmin via Docker Compose |
+| Services running | none yet — Stage 3 brings up the first one |
 | Frontend | deliberately last (Stage 23) |
-| AI/ML | parked — see `Goal/Plan.txt` |
+| AI/ML | parked — [ADR-0007](docs/adr/0007-defer-ai-ml-keep-the-data.md) |
 
 ## Where to read what
 
@@ -32,7 +32,11 @@ SaaS Platform
 | Why does this project exist? | `Goal/LearningGoal.txt` |
 | What is the build order? | `Goal/Plan.txt` — 24 stages, first to last |
 | How do we write code here? | `docs/00-conventions.md` |
-| Why is it built that way? | `docs/adr/` |
+| Where does one word stop meaning one thing? | `docs/01-bounded-contexts.md` |
+| Why these 14 services? | `docs/02-service-boundaries.md` |
+| How do services talk, and what breaks when? | `docs/03-communication.md` |
+| Who owns which fact? | `docs/04-data-ownership.md` |
+| Why is it built that way? | [`docs/adr/`](docs/adr/README.md) |
 | What did we learn the hard way? | `docs/learning/` |
 
 ## Architecture in one paragraph
