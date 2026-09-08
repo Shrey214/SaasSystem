@@ -15,6 +15,7 @@ It is "what did we already consider, and why did it lose".
 | [0005](0005-self-hosted-auth-in-dotnet.md) | Auth built in .NET, no external IdP | Accepted | Replaces Keycloak. ASP.NET Core Identity + RS256 JWT + JWKS + rotating refresh tokens; we now own the revocation-staleness problem |
 | [0006](0006-outbox-at-least-once-idempotent-consumers.md) | Outbox, at-least-once, idempotent consumers | Accepted | No dual writes; exactly-once *effects* rather than exactly-once delivery, which does not exist |
 | [0007](0007-defer-ai-ml-keep-the-data.md) | Defer AI/ML, keep the data | Accepted | Parking a model is reversible; failing to record `lead_time_days` is not |
+| [0008](0008-error-logs-in-each-services-own-database.md) | Errors to stdout **and** each service's own `error_logs` table | Accepted | Platform-admin support screens need a queryable tenant-scoped table; a shared log database would break ADR-0003 |
 
 ## Superseded
 

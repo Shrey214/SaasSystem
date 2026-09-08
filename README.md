@@ -36,6 +36,7 @@ SaaS Platform
 | Why these 14 services? | `docs/02-service-boundaries.md` |
 | How do services talk, and what breaks when? | `docs/03-communication.md` |
 | Who owns which fact? | `docs/04-data-ownership.md` |
+| Where does my code go? | `docs/05-code-structure.md` |
 | Why is it built that way? | [`docs/adr/`](docs/adr/README.md) |
 | What did we learn the hard way? | `docs/learning/` |
 
