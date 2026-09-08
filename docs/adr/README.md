@@ -16,6 +16,7 @@ It is "what did we already consider, and why did it lose".
 | [0006](0006-outbox-at-least-once-idempotent-consumers.md) | Outbox, at-least-once, idempotent consumers | Accepted | No dual writes; exactly-once *effects* rather than exactly-once delivery, which does not exist |
 | [0007](0007-defer-ai-ml-keep-the-data.md) | Defer AI/ML, keep the data | Accepted | Parking a model is reversible; failing to record `lead_time_days` is not |
 | [0008](0008-error-logs-in-each-services-own-database.md) | Errors to stdout **and** each service's own `error_logs` table | Accepted | Platform-admin support screens need a queryable tenant-scoped table; a shared log database would break ADR-0003 |
+| [0009](0009-right-size-clean-architecture-per-service.md) | Clean Architecture, right-sized per service | Accepted | The rule is the inward dependency, not the project count. 8 services Full, 4 Lean, 2 Minimal — assigned by whether the service protects invariants |
 
 ## Superseded
 

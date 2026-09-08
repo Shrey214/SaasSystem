@@ -42,8 +42,11 @@ application at `src/web/` that talks to all of them through the gateway.
 
 ## 2. Anatomy of one service
 
-Every service is **four projects**. This is Clean Architecture / Onion —
-the industry-standard arrangement for a service with real business rules.
+Clean Architecture, **right-sized per service** — see §2.4 and
+[ADR-0009](adr/0009-right-size-clean-architecture-per-service.md). Most
+services get four projects; a few genuinely do not need them.
+
+The reference shape, used by 8 of the 14:
 
 ```
 src/services/tenant/
@@ -99,6 +102,96 @@ internal sealed class BusinessRepository(TenantDbContext db) : IBusinessReposito
 That inversion is what makes the use case testable without a database,
 and what makes swapping PostgreSQL for something else a change in one
 project.
+
+### 2.4 Clean Architecture is the dependency rule, not the project count
+
+This is the part that gets misread. Clean Architecture is **one rule**:
+
+> Dependencies point inward. Business rules know nothing about
+> infrastructure.
+
+Four projects are a **mechanism for enforcing** that rule, not the rule
+itself. You can honour it perfectly inside a single project with folders,
+and you can violate it badly across six projects by referencing EF Core
+from `Domain`.
+
+So the projects are priced, not assumed. Four assemblies cost real
+things: a build graph, a DI registration spread across files, interfaces
+that exist only to be crossed once, and a mapping layer between three
+representations of the same row. For `booking` that price buys enormous
+protection. For `audit` — which does nothing but append a row it was
+handed — it buys nothing at all and is pure ceremony.
+
+**The test.** Does this service *protect invariants*?
+
+1. Are there rules that must hold no matter which use case runs?
+2. Is there a state machine with illegal transitions?
+3. Does it handle money, capacity, or concurrent access to a scarce thing?
+4. Or is it a pure projection of somebody else's events?
+
+Yes to 1–3 → it needs a domain model. Yes to 4 → it does not.
+
+### 2.5 The three tiers
+
+| Tier | Projects | Services |
+|---|---|---|
+| **Full** | `Domain` · `Application` · `Infrastructure` · `Api` | `identity` · `tenant` · `subscription` · `property` · `pricing` · **`booking`** · `payment` · `stay` |
+| **Lean** | `Core` (domain + application) · `Infrastructure` · `Api` | `guest` · `operations` · `content` · `notification` |
+| **Minimal** | one project, feature folders | `reporting` · `audit` |
+
+**Full (8 services)** — every one of these protects something that can be
+made invalid. `booking` guards capacity against concurrent holds.
+`payment` guards money against duplicate captures. `subscription` guards
+plan limits. `identity` guards single-use refresh tokens. `property` and
+`tenant` guard lifecycle state machines. `pricing` guards rule precedence
+and deterministic quotes. `stay` guards folio arithmetic.
+
+**Lean (4 services)** — real use cases and real validation, but few
+invariants that survive being expressed in a handler. `guest` is mostly
+CRUD plus deduplication and field encryption. `content` is CRUD plus a
+publish step. `operations` is a task lifecycle. `notification` has retry
+and channel logic but no business state anyone can corrupt. Domain types
+live in `Core` alongside the use cases; the dependency rule still holds,
+we just stop paying for one assembly boundary.
+
+**Minimal (2 services)** — `reporting` and `audit` own no invariants at
+all ([ADR-0006](adr/0006-outbox-at-least-once-idempotent-consumers.md),
+[ADR-0008](adr/0008-error-logs-in-each-services-own-database.md)). They
+consume events and write rows. One project with `Features/` folders,
+event handlers going straight to the `DbContext`. A domain model here
+would be an empty ceremony wrapped around an `INSERT`.
+
+**`tenant` is Full despite being small** — four tables and a state
+machine would justify Lean, but it is built first (Stage 4) and every
+later service is copied from it. Establishing the full pattern on
+something small is much cheaper than retrofitting it onto `booking`.
+
+Tiers move **upward** freely: if `guest` grows real invariants, promoting
+`Core` into `Domain` + `Application` is a mechanical split, because the
+dependency rule was never broken. That is the point of choosing the rule
+over the ceremony.
+
+### 2.6 Commands go through the domain, queries do not
+
+Within a Full-tier service, reads and writes are treated differently —
+CQRS in the light sense, no separate databases, no event sourcing:
+
+- **Commands** load an aggregate, call a method on it, and save. Rules
+  are enforced in one place, and no handler may set state directly.
+- **Queries** read straight from the `DbContext` into a DTO, projected in
+  SQL. They do **not** load aggregates.
+
+```csharp
+// query - no aggregate, no repository, no domain model
+var rows = await db.Bookings
+    .Where(b => b.PropertyId == propertyId && b.Arrival == date)
+    .Select(b => new ArrivalRow(b.Reference, b.GuestName, b.RoomTypeCode))
+    .ToListAsync(ct);
+```
+
+Forcing a "today's arrivals" list through aggregates means hydrating
+hundreds of objects with their children to read three fields each. The
+domain model exists to protect *changes*; it has no job on a read path.
 
 ---
 
@@ -647,7 +740,7 @@ compiler in it.
 
 | Folder | Purpose |
 |---|---|
-| `src/services/<name>/Domain` | business rules, zero dependencies |
+| `src/services/<name>/Domain` | business rules, zero dependencies (Full tier only — §2.5) |
 | `src/services/<name>/Application` | use cases, one folder per feature |
 | `src/services/<name>/Infrastructure` | EF Core, migrations, clients, consumers |
 | `src/services/<name>/Api` | endpoints, DI, middleware |
