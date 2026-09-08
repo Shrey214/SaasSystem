@@ -1,0 +1,620 @@
+Platform = our SaaS
+Business/Tenant = our customer
+Property = hotel managed by that customer
+Customer/Guest = end user of the hotel booking system
+DOMAIN BLUEPRINT — PART 1: PLATFORM & BUSINESS
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Business Registration	Business Owner	One SaaS account represents one business	Business, User	Local	Identity + Tenant	Duplicate registration / consistency
+Email/Phone Verification	Business Owner	Account must be verified before activation	User, Verification	Local	Identity	Token expiry / retry
+Create Business	Business Owner	Business becomes tenant root	Business, Owner	Local	Identity	Tenant provisioning
+Business Activation	Platform Admin	Suspended businesses cannot use platform	Business	Local	Identity / Subscription	Cache consistency
+Business Suspension	Platform Admin	Suspended tenant cannot perform normal operations	Business, Subscription	Local	All services	Propagating tenant state
+Business Profile	Tenant Admin	Business owns its profile information	Business Profile	Local	None initially	Cache invalidation
+Add Property	Tenant Owner/Admin	Property belongs to exactly one tenant	Business, Property	Local	Tenant + Property	Entitlement check
+Update Property	Tenant Admin / Property Manager	User must have property access	Property	Local	Property	Authorization consistency
+Delete/Archive Property	Tenant Admin	Historical bookings must remain intact	Property, Bookings	Local/Cross-domain	Booking	Referential/history consistency
+Property Activation	Tenant Admin	Property must satisfy setup requirements before activation	Property, Configuration	Local	Inventory/Pricing	Partial setup
+Property Suspension	Tenant Admin/Platform Admin	Suspended property cannot accept new bookings	Property, Availability	Local/Cross-domain	Booking/Availability	Propagation delay
+Property Switcher	Business Owner	User can only switch to authorized properties	User, Property Access	Read	Identity + Property	Stale permissions
+Business Dashboard	Business Owner	Data only from owned properties	Multiple read models	Read	Property/Booking/Payment/Reporting	Distributed aggregation
+Consolidated Business Reports	Business Owner	Report only includes tenant's properties	Booking, Payment, Property	Read	Multiple services	Eventual consistency
+Invite Staff	Tenant Admin	Staff belongs to tenant	User, Invitation	Local	Identity	Duplicate invitation
+Assign Staff to Property	Tenant Admin	User can only access assigned properties	User, Property Access	Local	Identity/Property	Permission propagation
+Remove Staff Access	Tenant Admin	Access must immediately/reliably stop	User, Property Access	Local	Identity	Stale tokens/cache
+Create Role	Tenant Admin	Role belongs to tenant or platform scope	Role, Permission	Local	Identity	Permission consistency
+Assign Permissions	Tenant Admin	Permissions must respect role scope	Role, Permission	Local	Identity	Authorization cache
+Subscription Selection	Business Owner	Business can subscribe to eligible plan	Subscription, Plan	Local	Billing	Payment/subscription consistency
+Subscription Upgrade	Business Owner	New entitlements become available according to plan	Subscription, Plan	Separate	Billing/Entitlement	Eventual consistency
+Subscription Downgrade	Business Owner	Existing usage may exceed new limits	Subscription, Usage	Separate	Billing/Entitlement	Handling over-limit state
+Trial Activation	Platform/System	Trial has fixed lifecycle	Subscription	Local	Billing	Expiry/background job
+Subscription Expiry	System	Expired account loses paid features	Subscription	Local	All services	State propagation
+Feature Entitlement Check	System	Feature availability depends on plan	Plan, Feature, Subscription	Read	Subscription	Cache consistency
+Usage Limit Check	System	Tenant cannot exceed plan limits	Usage, Subscription	Critical	Subscription	Concurrent limit breaches
+Business Billing	Tenant Admin	SaaS billing is separate from hotel payments	Invoice, Subscription, Payment	Separate	Billing	Payment reconciliation
+Platform Business Search	Platform Admin	Admin can search businesses	Business	Read	Tenant service	Search consistency
+Platform Audit	Platform Admin	Platform actions must be traceable	Audit	Append-only	Multiple services	Centralized event/audit consistency
+DOMAIN BLUEPRINT — PART 2: PROPERTY & INVENTORY
+
+Now we move inside a specific business.
+
+Example:
+
+Porwal Hotels
+      │
+      ├── Hotel Ujjain
+      ├── Hotel Indore
+      └── Hotel Bhopal
+
+Everything below is property-scoped unless explicitly stated otherwise.
+
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Create Building	Property Manager	Building belongs to property	Property, Building	Local	Property	Inventory consistency
+Create Floor	Property Manager	Floor belongs to property/building	Floor	Local	Property	Hierarchy consistency
+Create Room Type	Property Manager	Room type belongs to property	Room Type	Local	Property/Pricing	Pricing dependency
+Create Physical Room	Property Manager	Room belongs to one property and room type	Room, Room Type	Local	Property	Inventory consistency
+Assign Room Number	Property Manager	Room number unique within property	Room	Local	None	Concurrent creation
+Configure Bed	Property Manager	Bed configuration belongs to room/type	Bed	Local	Property	Inventory update
+Configure Amenity	Property Manager	Amenity can be property/room-type scoped	Amenity	Local	Property	Configuration consistency
+Assign Amenity	Property Manager	Only valid amenities can be assigned	Room/Room Type, Amenity	Local	Property	Referential consistency
+Upload Room Images	Property Manager	Images belong to room/type	Image Metadata	Local + File Storage	Storage	Upload failure
+Change Room Operational Status	Property Manager	Out-of-order/maintenance rooms cannot be sold	Room	Local	Availability	State propagation
+Block Room	Property Manager	Blocked room excluded from sellable inventory	Room, Block	Local	Availability	Cache consistency
+Unblock Room	Property Manager	Room becomes eligible only if otherwise valid	Room	Local	Availability	Stale availability
+Mark Room Out of Order	Property Manager	Room unavailable for operational reasons	Room	Local	Availability/Housekeeping	Existing reservation conflict
+Mark Room Maintenance	Property Manager	Maintenance can affect future availability	Room, Maintenance	Local	Maintenance/Availability	Cross-domain state
+View Inventory	Property Manager	Only property-authorized users can view	Rooms, Types	Read	Property	None initially
+DOMAIN BLUEPRINT — PART 3: PRICING
+
+Pricing deserves its own careful domain because it will become complex very quickly.
+
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Create Rate Plan	Property Manager	Rate plan belongs to property	Rate Plan	Local	Pricing	None initially
+Configure Meal Plan	Property Manager	Meal plan affects price/offer	Meal Plan	Local	Pricing	Price consistency
+Configure Seasonal Rate	Property Manager	Rate applies only within configured period	Season, Rate	Local	Pricing	Overlapping rules
+Configure Daily Rate	Property Manager	Rate can differ by date/day	Rate Calendar	Local	Pricing	Large read volume
+Configure Occupancy Pricing	Property Manager	Price can depend on guest count	Rate Rules	Local	Pricing	Rule evaluation
+Configure Weekend Pricing	Property Manager	Weekend rules override/base rates appropriately	Rate Rules	Local	Pricing	Rule priority
+Configure Minimum Stay	Property Manager	Booking must satisfy restriction	Restriction	Local	Availability	Availability consistency
+Configure Maximum Stay	Property Manager	Booking cannot exceed restriction	Restriction	Local	Availability	Availability consistency
+Configure Closed Dates	Property Manager	Room/rate cannot be sold on closed dates	Restriction	Local	Availability	Cache invalidation
+Configure Advance Booking Rule	Property Manager	Booking must fall within allowed window	Restriction	Local	Availability	Time consistency
+Configure Tax	Property Manager	Tax calculated according to configured rules	Tax Rule	Local	Pricing	Regulatory changes
+Apply Promotion	Property Manager	Promotion applies only when conditions match	Promotion, Rate	Local	Pricing	Rule consistency
+Create Coupon	Property Manager	Coupon validity and usage must be enforced	Coupon	Local	Booking/Pricing	Concurrent coupon usage
+Calculate Booking Price	Customer/System	Price must be deterministic for given inputs/version	Rates, Taxes, Discounts	Critical	Pricing	Stale price
+Lock Price at Booking	System	Confirmed booking should retain agreed price	Booking Price Snapshot	Booking transaction	Booking	Price changes after booking
+DOMAIN BLUEPRINT — PART 4: AVAILABILITY
+
+This is one of our most important domains.
+
+The fundamental question is:
+
+Can this property sell this room type for these dates and requirements?
+
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Search Availability	Customer	Only sellable inventory returned	Rooms, Bookings, Holds, Blocks	Cross-domain read	Property + Booking	Consistency/cache
+Check Room Type Availability	Customer	Available room count must satisfy request	Room Type, Inventory	Cross-domain	Property + Booking	Stale inventory
+Check Specific Room Availability	Staff/System	Room cannot overlap active reservation/hold	Room, Booking, Hold	Critical read	Booking	Race condition
+Exclude Maintenance Rooms	System	Operationally unavailable rooms cannot be sold	Room, Maintenance	Cross-domain	Property/Maintenance	State propagation
+Exclude Blocked Rooms	System	Blocked inventory cannot be sold	Room, Block	Cross-domain	Property	Cache invalidation
+Calculate Available Quantity	System	Availability = sellable inventory minus committed inventory	Inventory, Booking, Hold	Cross-domain	Booking	Eventual consistency
+Availability for Multiple Rooms	Customer	Requested room count must be satisfiable	Inventory, Booking	Cross-domain	Booking	Concurrency
+Availability Recheck	System	Availability must be revalidated before final booking	Inventory, Booking, Hold	Critical	Booking	Double booking
+Availability Calendar	Staff	Staff needs date-wise inventory view	Inventory, Booking	Read	Multiple services	Aggregation
+Availability Cache	System	Cached availability cannot be trusted forever	Availability Read Model	Read	Redis later	Stale cache
+DOMAIN BLUEPRINT — PART 5: ROOM HOLDS
+
+This deserves separate treatment because it is directly related to concurrency.
+
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Create Hold	Customer	Inventory temporarily reserved	Hold, Room/Inventory	Critical	Booking + Inventory	Concurrency
+Validate Hold	System	Hold must belong to correct customer/session	Hold	Local	Booking	Security
+Extend Hold	Customer/System	Extension only under allowed rules	Hold	Local	Booking	Race condition
+Expire Hold	System	Expired hold releases inventory	Hold	Background	Availability	Distributed scheduling
+Release Hold	System	Cancelled/failed booking releases hold	Hold	Local/Cross-domain	Booking	Duplicate release
+Convert Hold to Booking	System	Valid hold becomes booking	Hold, Booking	Critical	Booking/Payment	Distributed transaction
+Prevent Duplicate Hold	System	Same inventory cannot be committed twice	Hold, Inventory	Critical	Booking	Concurrency
+Handle Hold Timeout	System	Expired hold must not remain sellable-blocking	Hold	Background	Availability	Eventual consistency
+DOMAIN BLUEPRINT — PART 6: BOOKING
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Create Booking	Customer/Staff	Booking must satisfy availability rules	Booking, Rooms, Guest	Critical	Availability	Double booking
+Create Multi-Room Booking	Customer/Staff	All requested rooms must be successfully committed	Booking, Rooms	Critical	Availability	Partial success
+Assign Room	Staff/System	Assigned room must be compatible and available	Booking, Room	Critical	Property	Race condition
+Modify Booking	Customer/Staff	New dates/rooms must be revalidated	Booking, Availability	Cross-domain	Availability/Pricing	Partial update
+Change Guest Details	Customer/Staff	Authorized users only	Booking, Guest	Local/Cross-domain	Guest	Data consistency
+Change Dates	Customer/Staff	New dates must be available	Booking, Availability, Pricing	Cross-domain	Availability/Pricing	Reservation conflict
+Change Room Type	Staff	New room type must be available	Booking, Inventory	Cross-domain	Availability	Reallocation
+Cancel Booking	Customer/Staff	Cancellation must follow policy	Booking, Policy	Local + Cross-domain	Payment	Refund consistency
+Mark No-show	Staff/System	No-show follows property rules	Booking	Local	Payment/Notification	State propagation
+Confirm Booking	System	Confirmation requires successful business conditions	Booking, Payment	Separate	Payment	Saga
+Booking Number Generation	System	Booking reference must be unique	Booking	Local	None	Concurrent generation
+Booking History	Staff/Customer	Only authorized parties can view	Booking	Read	Reporting	Eventual consistency
+DOMAIN BLUEPRINT — PART 7: CUSTOMER & GUEST
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Customer Registration	Customer	Customer account is platform-facing booking identity	Customer	Local	Identity	Duplicate account
+Guest Creation	Customer/Staff	Guest belongs to booking/property context	Guest	Local	Booking	Data ownership
+Add Multiple Guests	Customer/Staff	Booking may contain multiple staying guests	Guest, Booking	Local/Cross-domain	Booking	Partial save
+Guest Profile	Customer/Staff	Profile access must respect authorization	Guest	Local	Identity/Booking	Privacy
+Guest Identity Details	Staff	Sensitive guest details require restricted access	Guest Identity	Local	Identity	Security/privacy
+Guest Booking History	Staff/Customer	History limited by authorization	Guest, Booking	Read	Booking	Cross-service aggregation
+Guest Preferences	Staff	Preferences should be property/business scoped appropriately	Guest Preferences	Local	Guest	Data ownership
+Guest Search	Staff	Search only within authorized scope	Guest	Read	Guest	Tenant isolation
+DOMAIN BLUEPRINT — PART 8: PAYMENT
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Initiate Payment	Customer	Payment linked to booking	Payment, Booking	Separate	Booking	Distributed transaction
+Payment Pending	System	Booking must not be incorrectly confirmed	Payment, Booking	Separate	Booking	Timeout
+Payment Success	Payment Gateway/System	Success must be processed exactly once logically	Payment	Separate	Booking	Duplicate callback
+Payment Failure	Gateway/System	Failed payment cannot confirm booking	Payment, Booking	Separate	Booking	Retry
+Payment Webhook	Gateway	Webhook may arrive multiple times	Payment	Local/idempotent	Booking	Duplicate events
+Payment Timeout	System	Unknown payment state needs reconciliation	Payment	Separate	Gateway	Ambiguous result
+Capture Payment	System	Capture must be idempotent	Payment	Separate	Gateway	Duplicate capture
+Refund Request	Customer/Staff/System	Refund based on cancellation policy	Refund, Booking	Separate	Booking	Distributed transaction
+Partial Refund	System	Refund can be less than payment	Refund, Payment	Separate	Gateway	Financial consistency
+Payment Reconciliation	Accountant/System	Gateway records and internal records must match	Payment, Gateway Data	Separate	External gateway	Data mismatch
+Payment Receipt	System	Receipt reflects actual successful payment	Payment, Invoice	Separate	Invoice	Eventual consistency
+DOMAIN BLUEPRINT — PART 9: CANCELLATION & REFUND
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Request Cancellation	Customer/Staff	Only cancellable bookings can be cancelled	Booking	Local	Booking	Concurrent cancellation
+Evaluate Policy	System	Refund depends on configured policy	Booking, Policy	Local	Pricing/Booking	Policy versioning
+Calculate Refund	System	Refund amount must be deterministic	Booking, Payment, Policy	Separate	Payment	Financial consistency
+Cancel Booking	System	Booking state changes and inventory is released	Booking, Inventory	Cross-domain	Availability	Partial failure
+Initiate Refund	System	Refund should happen according to result	Refund, Payment	Separate	Payment	Saga
+Refund Completed	Payment Gateway	Internal status must match gateway result	Refund	Separate	Booking/Notification	Webhook
+Cancellation Notification	System	Customer should be informed	Booking, Notification	Async	Notification	Retry/DLQ
+DOMAIN BLUEPRINT — PART 10: STAY OPERATIONS
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Today's Arrivals	Receptionist	Show authorized property arrivals	Booking	Read	Booking	Reporting consistency
+Check-in	Receptionist	Valid confirmed booking/guest required	Booking, Guest, Room	Critical	Booking + Property	Distributed transaction
+Room Assignment at Check-in	Receptionist	Room must be available/valid	Room, Booking	Critical	Property/Booking	Concurrency
+Walk-in Booking	Receptionist	Booking can be created without prior online reservation	Booking, Guest, Room	Critical	Availability	Race condition
+Early Check-in	Receptionist	Depends on room readiness/policy	Booking, Room	Cross-domain	Housekeeping	State synchronization
+Room Change	Receptionist	New room must be available	Booking, Room	Cross-domain	Availability	Partial failure
+Add Extra Charge	Receptionist	Charge belongs to guest stay/folio	Folio, Charge	Local	Payment	Financial consistency
+Late Checkout	Receptionist	Must follow policy and room availability	Booking, Room, Pricing	Cross-domain	Pricing/Housekeeping	Conflict
+Check-out	Receptionist	Stay ends and room becomes dirty/needs cleaning	Booking, Room, Housekeeping	Cross-domain	Housekeeping	Eventual consistency
+No-show Processing	Staff/System	Apply configured no-show rules	Booking, Payment	Separate	Payment	Financial consistency
+Invoice Generation	Accountant/Receptionist	Invoice reflects final charges	Booking, Folio, Payment	Cross-domain	Payment	Data aggregation
+DOMAIN BLUEPRINT — PART 11: FOLIO & EXTRA SERVICES
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Create Folio	System	Folio belongs to stay/booking	Folio	Local	Booking	Ownership
+Add Room Charge	System	Charge follows booked rate	Folio, Booking	Local	Booking	Price consistency
+Add Breakfast	Staff	Service must be configured/available	Folio, Service	Local	Property	Configuration
+Add Extra Bed	Staff	Extra charge according to rules	Folio, Service	Local	Pricing	Price consistency
+Add Airport Pickup	Staff	Service has configured price	Folio, Service	Local	Pricing	Cross-service data
+Add Late Checkout Charge	Staff	Charge based on property policy	Folio, Pricing	Cross-domain	Pricing	Rule consistency
+Apply Discount	Authorized Staff	Discount requires permission	Folio, Discount	Local	Pricing	Authorization
+Calculate Balance	System	Total charges minus payments/refunds	Folio, Payment	Cross-domain	Payment	Eventual consistency
+DOMAIN BLUEPRINT — PART 12: HOUSEKEEPING
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+View Dirty Rooms	Housekeeping	Only property scope	Room, Housekeeping	Read	Property	None
+Create Cleaning Task	System/Manager	Checkout/room event can trigger cleaning	Task, Room	Local	Booking	Eventual consistency
+Assign Cleaner	Housekeeping Manager	Staff must belong to property	Task, User	Local	Identity	Authorization
+Start Cleaning	Housekeeper	Assigned/authorized user only	Task	Local	None	Concurrent updates
+Complete Cleaning	Housekeeper	Room cannot become clean until task completed	Task, Room	Local	Property	State propagation
+Inspect Room	Supervisor	Inspection required if configured	Task, Room	Local	Property	Workflow consistency
+Mark Clean	System/Staff	Room becomes sellable only if other conditions permit	Room	Local/Cross-domain	Availability	Eventual consistency
+Housekeeping Notification	System	Relevant staff notified	Task, Notification	Async	Notification	Retry/DLQ
+DOMAIN BLUEPRINT — PART 13: MAINTENANCE
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Report Issue	Staff	Issue belongs to property/room	Maintenance Issue	Local	Property	None
+Assign Issue	Manager	Assigned staff must have access	Issue, User	Local	Identity	Authorization
+Start Work	Maintenance Staff	Only assigned/authorized user	Issue	Local	None	Concurrent update
+Resolve Issue	Maintenance Staff	Room can return to service only when resolved	Issue, Room	Local/Cross-domain	Availability	State propagation
+Put Room Out of Order	Manager/System	Room excluded from availability	Room, Issue	Cross-domain	Availability	Cache consistency
+Restore Room	Manager	Room must satisfy operational requirements	Room	Cross-domain	Housekeeping/Availability	State consistency
+DOMAIN BLUEPRINT — PART 14: NOTIFICATIONS
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Booking Confirmation Notification	System	Sent after booking reaches appropriate state	Booking, Notification	Async	Notification	Retry/DLQ
+Payment Notification	System	Sent after confirmed payment event	Payment, Notification	Async	Notification	Duplicate event
+Cancellation Notification	System	Sent after cancellation	Booking, Notification	Async	Notification	Delivery failure
+Refund Notification	System	Sent after refund result	Refund, Notification	Async	Notification	Retry
+Check-in Reminder	System	Sent based on date/time rules	Booking, Notification	Background	Notification	Scheduling
+Checkout Reminder	System	Sent based on stay date/time	Booking, Notification	Background	Notification	Scheduling
+Review Request	System	Eligible completed bookings receive request	Booking, Notification	Async	Review	Duplicate request
+Email Delivery	Notification Service	Delivery failure must not break booking	Notification	Separate	External Email Provider	Retry/DLQ
+SMS Delivery	Notification Service	Delivery failure must be recoverable	Notification	Separate	External SMS Provider	Retry/DLQ
+WhatsApp Delivery	Notification Service	Provider failure must be isolated	Notification	Separate	WhatsApp Provider	Retry/DLQ
+Notification Preferences	Customer/Business	User/property preferences determine channels	Preferences	Local	Notification	Configuration propagation
+DOMAIN BLUEPRINT — PART 15: WEBSITE / CMS
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Property Website Setup	Property Manager	Website belongs to property	Website Config	Local	Property	Tenant isolation
+Configure Logo	Property Manager	Logo belongs to property/business	Media, Config	Local + Storage	Storage	Upload failure
+Configure Images	Property Manager	Images must belong to property	Media	Local + Storage	Storage	Storage consistency
+Configure About Content	Property Manager	Content belongs to property	CMS Content	Local	Website	Cache invalidation
+Configure Amenities	Property Manager	Website shows configured facilities	Amenities	Cross-domain/read	Property	Stale data
+Configure Policies	Property Manager	Public policy must match operational policy	Policies	Local/Cross-domain	Booking	Version consistency
+Configure Theme	Property Manager	Theme belongs to property	Theme Config	Local	Website	Cache invalidation
+Configure SEO	Property Manager	SEO metadata belongs to property	SEO Config	Local	Website	Cache
+Custom Domain	Tenant/Property Admin	Domain must uniquely resolve to property	Domain, Property	Separate	Website/Platform	DNS/verification
+Resolve Domain	System	Incoming domain maps to correct tenant/property	Domain Mapping	Read	Tenant/Property	Cache/stale mapping
+Render Property Website	Customer	Customer sees only mapped property's content	Website, Property	Read	Multiple services	Aggregation/cache
+DOMAIN BLUEPRINT — PART 16: REVIEWS
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Request Review	System	Only eligible completed stay	Booking, Review Request	Async	Booking/Notification	Duplicate request
+Submit Review	Customer	Customer must be eligible	Review, Booking	Local	Booking	Authorization
+Rate Stay	Customer	Rating must be within allowed range	Review	Local	None	None
+Moderate Review	Property Manager	Review may require moderation	Review	Local	None	State consistency
+Publish Review	Manager/System	Only approved reviews appear publicly	Review	Local	Website	Cache invalidation
+Review Aggregation	Customer	Public rating based on published reviews	Reviews	Read	Review	Eventual consistency
+DOMAIN BLUEPRINT — PART 17: REPORTING
+
+Reporting is intentionally treated differently from operational transactions.
+
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Property Revenue Report	Property Manager	Only property-authorized data	Booking, Payment	Read	Booking + Payment	Eventual consistency
+Occupancy Report	Property Manager	Occupancy based on defined business rules	Room, Booking	Read	Property + Booking	Aggregation
+ADR Report	Property Manager	ADR follows configured calculation	Booking, Revenue	Read	Booking + Payment	Data consistency
+RevPAR Report	Property Manager	RevPAR requires occupancy/revenue	Room, Booking, Payment	Read	Multiple services	Eventual consistency
+Cancellation Report	Manager	Only authorized property data	Booking	Read	Booking	None
+No-show Report	Manager	Based on booking state	Booking	Read	Booking	None
+Property Comparison	Business Owner	Compare only owned properties	Multiple domains	Read	Multiple services	Distributed aggregation
+Business Revenue Report	Business Owner	Aggregate all tenant properties	Booking, Payment	Read	Multiple services	Eventual consistency
+Platform Report	Platform Admin	Aggregate all tenants	All domains	Read	Multiple services	Large-scale aggregation
+DOMAIN BLUEPRINT — PART 18: AUDIT & SECURITY
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+User Authentication	All authenticated users	Valid identity required	User, Token	Identity	Identity Service (.NET)	Token expiry
+Tenant Identification	System	Request must resolve authenticated tenant	JWT Context	Request	Identity Service / Kong	Context propagation
+Property Authorization	System	User only accesses assigned properties	User, Property Access	Request	Identity/Property	Stale permissions
+Permission Check	System	Action requires permission	Role, Permission	Request	Identity	Cache consistency
+Tenant Data Filtering	Service	Every query must respect tenant	tenant_id	Local transaction	None	Data leakage
+Property Data Filtering	Service	Property-scoped users see only authorized property data	property_id	Local transaction	None	Data leakage
+Resource Authorization	Service	Resource must belong to tenant/property	Resource ownership	Local	Multiple services	IDOR
+Audit Write	System	Important mutations must be traceable	Audit	Append-only	Multiple services	Centralized audit
+Login Activity	Platform/Security	Authentication activity should be traceable	Auth Audit	Separate	Identity Service (.NET)	Eventual consistency
+User Access Removal	Tenant Admin	Revoked access must stop reliably	User/Access	Local	Identity	Token/cache delay
+19. THE MOST IMPORTANT CROSS-DOMAIN WORKFLOWS
+
+Now we have individual functionality.
+
+But microservices are learned through workflows, so these are the workflows we will eventually design in detail.
+
+Workflow A — Business Onboarding
+Business Owner
+      ↓
+Register
+      ↓
+Verify
+      ↓
+Create Business
+      ↓
+Choose Subscription
+      ↓
+Create Property
+      ↓
+Configure Inventory
+      ↓
+Configure Pricing
+      ↓
+Configure Policies
+      ↓
+Configure Website
+      ↓
+Publish Property
+
+Potential problems:
+
+identity provisioning
+tenant creation
+subscription creation
+plan limits
+partial onboarding failure
+retry
+idempotency
+20. Workflow B — Add New Property
+Business Owner
+      ↓
+Create Property
+      ↓
+Check Plan Entitlement
+      ↓
+Create Property
+      ↓
+Configure Property
+      ↓
+Add Rooms
+      ↓
+Add Rates
+      ↓
+Publish
+
+Potential distributed problem:
+
+Subscription Service
+        ↓
+"Can this tenant create another property?"
+        ↓
+Property Service
+
+What if Subscription Service is unavailable?
+
+We will eventually decide whether this check should be:
+
+synchronous
+cached
+locally replicated
+event-driven
+21. Workflow C — Customer Booking
+Customer
+   ↓
+Search
+   ↓
+Availability
+   ↓
+Select Room
+   ↓
+Create Hold
+   ↓
+Payment
+   ↓
+Payment Success
+   ↓
+Confirm Booking
+   ↓
+Release Hold
+   ↓
+Send Notification
+
+This single workflow can teach us:
+
+service communication
+concurrency
+transactions
+idempotency
+payment
+Saga
+events
+RabbitMQ
+retries
+DLQ
+cache
+
+This is probably the most valuable workflow in the entire project.
+
+22. Workflow D — Cancellation
+Customer
+   ↓
+Cancel Booking
+   ↓
+Evaluate Policy
+   ↓
+Calculate Refund
+   ↓
+Cancel Reservation
+   ↓
+Release Inventory
+   ↓
+Initiate Refund
+   ↓
+Refund Result
+   ↓
+Notify Customer
+
+Potential failure:
+
+Booking cancelled
+      ↓
+Refund Service DOWN
+
+The booking should not magically become "uncancelled" just because the payment system is temporarily unavailable.
+
+This forces us to model state correctly.
+
+23. Workflow E — Check-in
+Receptionist
+     ↓
+Find Booking
+     ↓
+Validate Guest
+     ↓
+Validate Room
+     ↓
+Assign Room
+     ↓
+Check-in
+     ↓
+Room = OCCUPIED
+
+Potential problem:
+
+Two receptionists attempt to assign the same room.
+
+Again:
+
+Concurrency.
+
+24. Workflow F — Check-out
+Guest
+  ↓
+Checkout
+  ↓
+Calculate Final Folio
+  ↓
+Collect Remaining Payment
+  ↓
+Checkout Booking
+  ↓
+Room → VACANT_DIRTY
+  ↓
+Housekeeping Task
+  ↓
+Cleaning
+  ↓
+Inspection
+  ↓
+VACANT_CLEAN
+
+This is a beautiful event-driven workflow for later.
+
+25. Workflow G — Maintenance
+Staff
+  ↓
+Report Issue
+  ↓
+Room OUT_OF_ORDER
+  ↓
+Maintenance
+  ↓
+Resolve
+  ↓
+Inspection
+  ↓
+Room Available
+
+The availability system must eventually react correctly to the room becoming unavailable/available.
+
+26. Workflow H — Subscription Limit
+
+Example:
+
+Business is on Starter:
+
+Maximum Properties = 1
+
+They already have:
+
+Property 1
+
+They click:
+
++ Add Property
+
+System:
+
+Property Service
+       ↓
+Entitlement Check
+       ↓
+Subscription Service
+       ↓
+Limit = 1
+Current = 1
+       ↓
+REJECT
+
+Later, if they upgrade:
+
+Starter
+  ↓
+Upgrade
+  ↓
+Professional
+  ↓
+Property creation allowed
+
+This teaches cross-service entitlement handling.
+
+27. THE BIG PICTURE
+
+Our domain is now starting to look like this:
+
+                         SAAS PLATFORM
+                              │
+             ┌────────────────┴────────────────┐
+             │                                 │
+       PLATFORM DOMAIN                    TENANT DOMAIN
+             │                                 │
+       ┌─────┼─────┐                   ┌───────┼────────┐
+       │     │     │                   │       │        │
+    Admin  Plans  Reports           Business Users Subscription
+                                           │
+                                           │
+                                      PROPERTIES
+                                           │
+             ┌─────────────────────────────┼─────────────────────────┐
+             │                             │                         │
+        INVENTORY                       PRICING                  OPERATIONS
+             │                             │                         │
+        Rooms/Types                    Rates/Tax               Booking
+        Floors                         Promotions               Guest
+        Amenities                      Coupons                  Check-in
+        Facilities                     Policies                 Checkout
+                                                                  │
+                                                ┌─────────────────┼──────────────┐
+                                                │                 │              │
+                                           Housekeeping       Maintenance      Payment
+                                                │                 │              │
+                                                └─────────────────┼──────────────┘
+                                                                  │
+                                                            NOTIFICATIONS
+                                                                  │
+                                                               WEBSITE
+                                                                  │
+                                                               REVIEWS
+                                                                  │
+                                                               REPORTS
+28. What we have achieved
+
+At this point we have not designed a single table.
+
+That's intentional.
+
+We've instead established:
+
+Business hierarchy
+SaaS
+ ↓
+Business/Tenant
+ ↓
+Multiple Properties
+ ↓
+Property Operations
+Functional domains
+Platform administration
+Business management
+Multi-property management
+Users
+Roles
+Permissions
+Subscriptions
+Entitlements
+Inventory
+Rooms
+Room types
+Pricing
+Availability
+Holds
+Bookings
+Customers
+Guests
+Payments
+Refunds
+Cancellation
+Front desk
+Check-in/out
+Folio
+Extra services
+Housekeeping
+Maintenance
+Notifications
+Website/CMS
+Custom domains
+Reviews
+Reports
+Audit
+Security
+And most importantly, we've identified where microservices will actually become interesting.
+
+The major pressure points are:
+
+                    DISTRIBUTED-SYSTEM PRESSURE
+                              │
+        ┌─────────────────────┼──────────────────────┐
+        │                     │                      │
+   Availability          Booking/Payment       Notifications
+        │                     │                      │
+   Concurrency             Saga                 RabbitMQ
+   Cache                   Idempotency            Retry
+   Consistency             Webhooks               DLQ
+        │                     │
+        └──────────────┬──────┘
+                       │
+                 Tenant Isolation
+                       │
+                 Authorization
+                       │
+                Subscription
+                 Entitlements
+
+This is exactly the foundation we need before service design.
+
+The next logical step is not tables yet.

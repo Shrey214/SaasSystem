@@ -1,0 +1,49 @@
+Goal: Build a real-world Multi-Tenant Hotel Management SaaS and learn production-grade microservices by actually solving the problems.
+
+🛠️ Technology roadmap
+Stage	Technology	Purpose
+Start	.NET 10 / C# 14	Backend APIs
+Start	PostgreSQL	Database
+Start	EF Core 10	Data access
+Start	Next.js	Frontend
+Start	Docker / Docker Compose	Local infrastructure
+Early	Kong Gateway OSS	API Gateway
+Early	ASP.NET Core Identity (.NET 10)	Authentication & RBAC (self-hosted, no external IdP)
+Then	RabbitMQ	Async communication/events
+Then	Redis	Caching & distributed scenarios
+Then	Payment gateway sandbox	Payment workflows
+Then	Background jobs	Holds, expiry, retries, scheduled work
+Later	AWS	Cloud deployment
+Later	CI/CD	Automated deployment
+Later	Kubernetes	Container orchestration
+Later	Prometheus + Grafana	Monitoring
+Later	OpenTelemetry	Distributed tracing
+Later	Production hardening	Resilience, scaling, security
+💰 Cost philosophy
+
+For the entire learning/build phase: FREE wherever realistically possible.
+
+We'll prefer:
+
+PostgreSQL → Free
+.NET → Free
+EF Core → Free
+Next.js → Free
+Docker → Free
+Kong OSS → Free
+RabbitMQ → Free
+Redis → Free
+Local development → Your own machine
+Payment → razorpay
+AWS → Only when we reach that stage, using free-tier
+
+
+use git from start for versio controlling
+and need free because i want to learn
+We won't pay for cloud services just to learn them.
+
+Later, if you want to turn this into a real production SaaS, we can replace the free/local components with paid managed services where they actually provide value.
+
+The philosophy is:
+
+Build → understand the problem → solve it locally for free → then learn how production companies scale the same solution.

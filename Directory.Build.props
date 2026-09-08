@@ -1,0 +1,42 @@
+<Project>
+
+  <!--
+    Applies to every .csproj under this folder. One place to change the
+    framework, language level and analysis rules for all services.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      Warnings are errors on purpose. In a system with 14 services, a
+      warning nobody reads becomes a nullable-reference bug in a booking
+      transaction six months later.
+    -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Deterministic, dependency-locked builds so CI matches local. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <Deterministic>true</Deterministic>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      We only ever run on Linux containers and en-US formatting; opting
+      out of ICU keeps images smaller and behaviour identical everywhere.
+      Revisit if we ever localise the guest-facing site.
+    -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

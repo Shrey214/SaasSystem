@@ -1,0 +1,23 @@
+Very short:
+
+You’re trying to learn how to design and build a real-world multi-tenant Hotel Management SaaS using microservices.
+
+Mainly learning:
+
+🏢 Multi-tenancy & tenant isolation
+🧩 Bounded contexts & microservice boundaries
+🔄 Service-to-service communication
+🗄️ Database-per-service & data ownership
+🔐 Custom .NET 10 auth (ASP.NET Core Identity + JWT) + Kong + authorization
+⚡ Concurrency & preventing double bookings
+🔁 Transactions, idempotency & Saga
+📨 RabbitMQ, events, retries & DLQ
+🚀 Redis caching & performance
+💳 Payment workflows & failures
+📊 Eventual consistency & reporting
+🛡️ Security, failures & resilience
+🤖 Applied ML in a multi-tenant system (cold start, leakage, suggestion-only)
+
+In one line:
+
+Build a real hotel SaaS while learning the actual problems and solutions involved in production-grade microservice architecture, not just theory.

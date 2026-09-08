@@ -1,0 +1,626 @@
+HOTELSAAS — BUILD PLAN (backend-first, incremental)
+====================================================
+
+
+CONTEXT
+-------
+
+C:\HotelSaas currently contains only the Goal/ folder — four design
+documents, no code:
+
+  Saas.txt        PHASE 1 DONE — product / functional design.
+                  Platform -> Business (tenant) -> Property -> Operations,
+                  the full functional map (~30 capability areas),
+                  and the Phase 1->8 sequence.
+
+  Domain.txt      PHASE 2 DONE — domain blueprint.
+                  18 blueprint tables (functionality x actor x business rule
+                  x data x transaction boundary x service interaction
+                  x future distributed problem) + 8 cross-domain
+                  workflows (A-H).
+
+  TechStack.txt   .NET 10 / C# 14, PostgreSQL, EF Core 10, Next.js, Docker,
+                  Kong OSS, RabbitMQ, Redis, Razorpay sandbox,
+                  later AWS / K8s / OTel / Prometheus. Free only.
+                  Git from the start.
+                  AUTH: no external identity provider — authentication and
+                  authorization are built in .NET 10 inside the identity
+                  service (ASP.NET Core Identity + our own JWT issuance).
+
+  LearningGoal.txt  The real objective: learn production-grade microservices
+                  by HITTING the problems (multi-tenancy, boundaries, Saga,
+                  concurrency, DLQ, cache, entitlements), not reading
+                  about them.
+
+Domain.txt ends with "The next logical step is not tables yet."
+=> PHASE 3 (bounded contexts / service boundaries) is the open work.
+
+Your direction: work incrementally, backend first, capture backend
+functionality as microservices PLUS DB design, frontend last.
+
+Verified installed on this machine:
+  .NET   10.0.400
+  Docker 29.4.3
+  git    2.43
+  Node   24.16
+  Postgres runs in Docker (no local psql needed).
+
+Already done (only change made so far):
+  git init on branch 'master' + a .NET / Node / secrets .gitignore
+
+
+WHERE WE START
+--------------
+
+STAGE 1 = Phase 3-5 design docs. Not tables, not code.
+
+Reason: table design IS boundary design. A bookings table with a foreign
+key to rooms silently decides that Booking and Property share a database.
+Deciding boundaries first costs one stage; getting it wrong costs a
+rewrite of every service.
+
+After that, DB design and code proceed ONE SERVICE AT A TIME — each
+service fully finished (design -> tables -> migration -> endpoints ->
+tests -> compose -> commit) before the next one starts.
+
+
+TARGET ARCHITECTURE  (the part to review closely)
+-------------------------------------------------
+
+30+ capability areas -> 14 SERVICES, deliberately NOT one-per-module
+(the mistake Saas.txt section 29 warns about).
+
+ #   SERVICE        OWNS                                  WHY IT IS ITS OWN SERVICE
+--- -------------- ------------------------------------- ---------------------------------
+ 1   identity       users + credentials, refresh tokens,  Owns BOTH authentication and
+                    tenant memberships, roles,            authorization. Pure .NET 10:
+                    permissions, user<->property access,  ASP.NET Core Identity for users
+                    invitations, platform admins          and password hashing, our own
+                                                          RS256 JWT issuance + JWKS
+                                                          endpoint. No external IdP.
+
+ 2   tenant         businesses, profiles, lifecycle,      Tenant registry is the root of
+                    platform business management          every other context.
+
+ 3   subscription   plans, features, plan limits,         SaaS money != hotel money.
+                    subscriptions, trials, usage          Entitlement checks are
+                    counters, SaaS invoices               cross-service by design
+                                                          (Workflow H).
+
+ 4   property       properties, settings, policies,       Source of truth for INVENTORY
+                    buildings, floors, room types,        DEFINITION.
+                    rooms, beds, amenities, blocks
+
+ 5   pricing        rate plans, meal plans, seasons,      Rules engine. Read-heavy, changes
+                    rate calendar, occupancy/weekend      on a different rhythm than
+                    rules, restrictions, taxes,           booking.
+                    promotions, coupons
+
+ 6   guest          customers (bookers), guests           Holds the PII — isolating it is
+                    (stayers), identity documents,        the point.
+                    preferences
+
+ 7   booking        AVAILABILITY LEDGER + HOLDS +         The concurrency core — must be
+                    RESERVATIONS                          ONE transaction boundary.
+
+ 8   payment        hotel payments, refunds, gateway      Different failure characteristics.
+                    events/webhooks, reconciliation       External gateway.
+
+ 9   stay           check-in/out, room assignment,        Starts as a MODULE inside
+                    room change, folio, extra charges,    booking, then is EXTRACTED at
+                    invoices                              Stage 14 so you learn extraction.
+
+10   operations     housekeeping tasks + room             Merged on purpose: both are
+                    housekeeping status, maintenance      room-state task workflows that
+                    issues, work orders                   affect sellability.
+
+11   notification   channels, templates, preferences,     Must tolerate failure without
+                    delivery attempts, DLQ                ever touching booking.
+
+12   reporting      event-driven read models              Read side. Eventual consistency
+                    (occupancy, ADR, RevPAR) at           by design.
+                    property / business / platform scope
+
+13   audit          append-only audit log                 Consumes everyone else's events.
+
+14   content        website config, media metadata,       Public-content shaped, low
+                    custom domains + domain->property     transaction volume.
+                    resolution, reviews
+
+15   intelligence   [PARKED - NOT BEING BUILT]            The ONLY service allowed to hold
+                    trained models, scores, forecasts,    a model. Never in the hot path.
+                    suggestion records + accept/reject    See the AI/ML section below.
+                    feedback
+
+
+MERGES MADE ON PURPOSE
+  housekeeping + maintenance             -> operations
+  website + reviews                      -> content
+  availability + holds + reservations    -> booking
+  plans + entitlements + SaaS billing    -> subscription
+
+
+KEY DECISION — AVAILABILITY LIVES INSIDE BOOKING
+
+  availability = sellable inventory
+                 - (confirmed bookings + active holds + blocks)
+
+A separate Availability service would force a DISTRIBUTED TRANSACTION ON
+THE HOTTEST, MOST RACE-PRONE PATH in the whole system (every hold and
+every booking).
+
+Instead: booking owns the availability ledger and maintains its own
+inventory projection built from property events. A Redis read model is
+added at Stage 13 for search fan-out.
+
+Recorded as an ADR with the rejected alternative — this is exactly the
+kind of call you are trying to learn to make.
+
+
+DATA OWNERSHIP RULES
+
+  DATABASE-PER-SERVICE
+    One local Postgres container, one database each
+    (hs_tenant, hs_property, ...).
+    No cross-database queries. No cross-service foreign keys.
+
+  TENANT ISOLATION — THREE LAYERS
+    1. tenant_id comes from the JWT via ITenantContext,
+       NEVER from a request body
+    2. EF Core global query filter on every tenant-scoped entity
+    3. Postgres RLS on hot tables later, as defence-in-depth
+    Every service test suite gets a
+    "tenant A cannot read tenant B" test.
+
+  CROSS-SERVICE DATA
+    Replicate the minimum via events.
+    Snapshot immutable facts into the owning aggregate
+    (price snapshot on the booking, guest name on the booking room).
+
+  CONVENTIONS
+    uuid v7 primary keys (time-ordered, collision-free across services)
+    numeric(18,4) + ISO currency for money — never float
+    timestamptz for instants,
+      but DATE for stay nights (a hotel night is a date, not an instant)
+
+  EVERY SERVICE
+    a transactional outbox table
+    an idempotency_keys table for every externally-triggered write
+
+
+INFRASTRUCTURE — INTRODUCED ONLY WHEN A PROBLEM DEMANDS IT
+
+  Postgres + pgAdmin           Stage 2
+  Kong OSS gateway             Stage 5
+  RabbitMQ                     Stage 7
+  Razorpay sandbox             Stage 11
+  Redis                        Stage 13
+  OTel / Prometheus / Grafana  Stage 21
+
+  No identity provider container — auth is our own .NET 10 code.
+
+
+AUTH DESIGN (replaces Keycloak)
+-------------------------------
+
+  ISSUER
+    The identity service is the only token issuer.
+    ASP.NET Core Identity  -> user store, password hashing, lockout,
+                              email/phone confirmation, 2FA later
+    Our own token endpoint -> POST /auth/login, /auth/refresh,
+                              /auth/logout
+    RS256 signing          -> private key in the identity service only,
+                              public key published at
+                              /.well-known/jwks.json
+
+  ACCESS TOKEN CLAIMS
+    sub            user id
+    tenant_id      the business (absent for platform admins)
+    scope_type     platform | tenant | property
+    roles          role codes
+    perms          permission codes (or a version stamp, see below)
+    props          authorized property ids
+    jti, exp       short-lived: 10-15 minutes
+
+  REFRESH TOKENS
+    Rotating, stored hashed in the identity DB, one row per device,
+    revocable. This is what makes "Remove Staff Access" actually work
+    (Domain.txt Part 1 + Part 18) — access dies within one token
+    lifetime, refresh dies immediately.
+
+  VALIDATION — WHERE IT HAPPENS
+    Each service validates the JWT itself with AddJwtBearer pointing at
+    the identity service JWKS (cached, auto-rotating). Kong OSS does
+    routing, rate limiting and a coarse signature check; it does NOT
+    become the only line of defence, because a service must never trust
+    a caller just because it came through the gateway.
+
+  THE PROBLEM WE ARE DELIBERATELY BUYING
+    Permissions and property access now live in a token, so they go
+    stale the moment an admin revokes them. Stage 5 solves it and
+    documents the trade-off:
+      - short access-token lifetime
+      - a perms_version claim checked against a Redis/DB value
+        (Redis arrives Stage 13; DB check until then)
+      - immediate refresh-token revocation
+    This is the same staleness problem an external IdP would have
+    given us — we now own both sides of it, which is better for
+    learning.
+
+  IF REAL OIDC IS EVER NEEDED
+    (third-party apps, channel managers, social login on the public
+    property website) -> add OpenIddict, which is free/MIT and runs
+    inside the same .NET identity service. Not now.
+
+
+AI / ML — PARKED, NOT CANCELLED
+-------------------------------
+
+  STATUS: DEFERRED. Not being worked on. Decide later.
+
+  Everything below is kept as a recorded idea only. Stage 20 is
+  suspended and the intelligence service is NOT being built.
+
+  THE ONE THING WE STILL DO NOW, because it cannot be backfilled:
+  Stage 1 designs the event catalog so the events already carry
+  booking lead time, channel, rate plan, deposit taken, cancellation
+  timestamp and nightly occupancy snapshots. These are useful for
+  reporting (Stage 17) on their own merit, and they keep the ML door
+  open at zero cost. No model, no library, no extra service.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+IDEA PARKING LOT (revisit after Stage 19)
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Rule: ML earns its place only where a HUMAN DECISION is currently made
+on a guess. Three features, not a shelf of them. Everything is a
+SUGGESTION a human accepts or rejects — nothing writes a rate, blocks a
+room, or takes money on its own.
+
+Second rule: ML needs history. Nothing is trained until Stages 4-19 have
+been running and generating events. Stage 1 only makes sure the events
+carry the right fields.
+
+
+THE THREE FEATURES
+
+  ML-1  CANCELLATION / NO-SHOW RISK SCORE            (the unique one)
+        At booking confirmation, score 0-1: how likely is this booking
+        to cancel or no-show?
+        Features: lead time, length of stay, rate plan (refundable?),
+                  deposit taken, channel (web / walk-in / phone),
+                  weekday vs weekend arrival, guest stay history,
+                  season, price vs property average.
+        What it unlocks — real decisions a hotel actually makes:
+                  - require a deposit on high-risk bookings
+                  - allow controlled overbooking on high-risk dates
+                  - prioritise which arrivals reception should confirm
+        Model: LightGBM binary classifier (ML.NET).
+        Why unique: almost nobody builds this into a small PMS, and it
+        turns two existing capabilities (no-show processing,
+        cancellation policy) from reactive into predictive.
+
+  ML-2  DEMAND FORECAST -> RATE SUGGESTION
+        Per room type, next 60-90 days: forecast occupancy, then
+        suggest a rate nudge with a reason.
+        e.g. "Deluxe, 12 Oct: pace is 40% above the same lead time
+              last year -> suggest 3,000 -> 3,400"
+        Features: booking pace by lead time, historical occupancy,
+                  day of week, season, local events (manual calendar),
+                  current pickup vs same-time-last-year.
+        Model: SSA time-series forecast (ML.NET) for occupancy, then a
+               transparent rule layer for the rate delta — so the
+               manager always sees WHY.
+        Hard limits: writes to a suggestions table only. A manager
+               accepts it and THEN pricing changes. Accept/reject is
+               stored and becomes training feedback.
+
+  ML-3  REVIEW ASPECT + MODERATION ASSIST
+        On review submission, extract aspect sentiment
+        (cleanliness / staff / location / value / facilities) and flag
+        abusive or spam text for the existing moderation step.
+        Model: ML.NET text featurization + multiclass classifier;
+               swappable for a local ONNX sentiment model.
+        Why: the moderation capability already exists in the blueprint
+        (Domain.txt Part 16) and is pure manual work today.
+
+  BONUS (not really ML, cheap, do it at Stage 9)
+        Duplicate guest detection — fuzzy match on name + phone +
+        email + document number, so the same guest is not created five
+        times. Trigram/Levenshtein in Postgres, no model needed.
+
+
+WHAT WE ARE NOT BUILDING (and why)
+
+  no chatbot / concierge bot        adds a support surface, teaches
+                                   nothing about microservices
+  no LLM-over-tenant-data query    "show me next week's arrivals" is a
+                                   tenant-isolation hazard and a whole
+                                   security project of its own.
+                                   Revisit only after Stage 21.
+  no image recognition             no real decision depends on it
+  no recommendation engine         needs traffic we will never have
+                                   locally
+
+
+ARCHITECTURE
+
+  ONE SERVICE: intelligence (.NET 10 + ML.NET). No Python container,
+  no paid API, nothing to pay for. ONNX Runtime is the escape hatch if
+  a model ever outgrows ML.NET — train elsewhere, export .onnx, keep
+  inference in .NET.
+
+  IT OWNS ITS OWN DATABASE, like every other service. It builds a
+  feature store by consuming RabbitMQ events (BookingConfirmed,
+  BookingCancelled, NoShowRecorded, CheckedIn, CheckedOut,
+  NightlyOccupancySnapshot, ReviewSubmitted). It never queries another
+  service's database.
+
+  IT IS NEVER IN THE HOT PATH. Booking does not wait on a score.
+    - ML-1 scores are written back as an event, and booking stores the
+      score as an attribute it can ignore
+    - ML-2 writes suggestions, read on demand by a manager
+    - ML-3 runs after the review is already saved
+    No score available -> the system behaves exactly as it does today.
+    That degradation path is a Stage 21 chaos test.
+
+  TRAINING runs as a scheduled background job inside the service,
+  writes a versioned model file + its metrics, and never blocks
+  serving. Model version is recorded on every score so a bad model can
+  be traced and rolled back.
+
+
+THE GENUINELY HARD PART — MULTI-TENANT ML  (this is the learning)
+
+  A new property has 40 bookings. A per-tenant model is worthless.
+  One pooled model across all tenants leaks one business's demand
+  patterns into another's pricing advice.
+
+  Our answer, recorded as ADR-0006:
+    1. COLD START      < N bookings -> no model, transparent heuristic
+                       (rate plan + lead time buckets). The UI says
+                       "based on rules, not enough history yet".
+    2. POOLED MODEL    trained on tenant-anonymised features only —
+                       never tenant_id, property name, or any
+                       identifier as a feature.
+    3. TENANT CALIBRATION  a small per-tenant correction layer on top
+                       once history exists.
+    4. NEVER CROSS-TENANT OUTPUT  a suggestion for tenant A may cite
+                       only tenant A's own numbers as its reason.
+
+  Also: POINT-IN-TIME CORRECTNESS. Training rows must contain only what
+  was knowable at prediction time. If "was_cancelled" or the final
+  occupancy leaks into the features, the model looks brilliant offline
+  and useless live. The feature store is therefore event-sourced with
+  an as-of timestamp on every row — which is exactly why intelligence
+  comes after reporting (Stage 17) rather than early.
+
+
+RHYTHM — WHAT EVERY SERVICE STAGE DELIVERS
+------------------------------------------
+
+  1. docs/<n>-<service>.md
+       capability list traced back to Domain.txt rows
+  2. Table design
+       mermaid ERD + DDL rationale  (PHASE 6-7 PER SERVICE, not all upfront)
+  3. Domain model + EF Core mapping + first migration
+  4. Endpoints as vertical slices, one per use case
+  5. Integration tests on Testcontainers Postgres
+       business rules + the tenant-isolation test
+  6. docker-compose wiring + a run script
+  7. docs/learning/<n>-notes.md
+       the problem hit, the options, what was chosen and why
+  8. git commit + tag stage-<n>
+
+
+ROADMAP — FIRST TO LAST
+-----------------------
+
+FOUNDATION
+
+  0   Repo skeleton
+      src/services, src/BuildingBlocks, infra/docker, docs, tests
+      Directory.Build.props (net10.0, nullable, warnings-as-errors)
+      + central package management, .editorconfig, README,
+      docs/00-conventions.md
+
+  1   PHASE 3-5 DESIGN                      <-- YOUR REVIEW POINT
+      - bounded contexts + ubiquitous-language conflicts
+          Room means three different things
+          Customer != Guest
+          hotel Payment != SaaS Billing
+          five separate "status" concepts
+      - service boundaries + dependency matrix
+      - communication: sync vs async per interaction, event catalog v1,
+        outbox, idempotency, correlation ids
+      - data ownership
+      - ML DATA CAPTURE: the event catalog must already carry the
+        fields the Stage 20 models need (booking lead time, channel,
+        rate plan, deposit taken, cancellation timestamp, nightly
+        occupancy snapshot). Costs nothing now; cannot be
+        backfilled later.
+      - ADRs 0001-0006
+
+  2   Local infra v1
+      Postgres 17 + pgAdmin, per-service database init, .env.example
+
+  3   Solution scaffold + BuildingBlocks
+      ITenantContext (header stub until Stage 5), ProblemDetails,
+      EF conventions, uuid v7, outbox/idempotency primitives,
+      health checks
+
+TENANCY & ACCESS
+
+  4   tenant
+      register/verify business, lifecycle state machine,
+      platform business search
+      LEARN: tenant provisioning, idempotent registration
+
+  5   identity + KONG          (all auth written in .NET 10)
+      ASP.NET Core Identity user store, RS256 JWT issuance + JWKS,
+      rotating refresh tokens, roles, permissions, property access;
+      replace the Stage 3 header stub with real JWT claims;
+      Kong in front for routing + rate limiting
+      LEARN: token issuance and validation, context propagation,
+             stale permissions, revocation delay, why the gateway
+             is not a security boundary on its own
+
+  6   subscription
+      plans, limits, usage counters, POST /entitlements/check
+      LEARN: concurrent limit breach needs a real counter / lock
+
+  7   property + RABBITMQ
+      full inventory tree; property creation calls subscription
+      synchronously, then we BREAK SUBSCRIPTION ON PURPOSE
+      -> timeout, retry, circuit breaker, cached entitlement;
+      first outbox -> Rabbit events
+      LEARN: Workflow B / H, first real cross-service dependency
+
+BOOKING CORE
+
+  8   pricing
+      rate calendar, rule precedence, taxes, promotions,
+      POST /quotes deterministic + versioned
+
+  9   guest
+      customers vs guests, documents, dedupe
+      LEARN: PII isolation
+
+ 10   booking                                <-- THE CENTREPIECE
+      inventory projection from events, availability search,
+      holds with expiry, reservation lifecycle.
+      A test fires N parallel holds at one room to PRODUCE a double
+      booking, then fixes it.
+      LEARN: optimistic vs pessimistic locking, SELECT ... FOR UPDATE,
+             unique constraints as last line of defence, idempotency,
+             background expiry
+
+MONEY
+
+ 11   payment + RAZORPAY SANDBOX + SAGA
+      webhooks, injected failures (paid-but-confirm-failed,
+      gateway timeout), reconciliation job
+      LEARN: orchestrated Saga, compensations, exactly-once effect
+
+ 12   Cancellation & refund workflow
+      policy snapshot + versioning;
+      booking cancelled while refund service is down
+      LEARN: modelling state so a stuck refund cannot
+             "un-cancel" a booking
+
+ 13   REDIS
+      availability cache + event-driven invalidation,
+      entitlement cache, distributed lock
+      LEARN: invalidation, stampede, lock correctness
+
+OPERATIONS
+
+ 14   stay
+      EXTRACT check-in/out + folio + invoicing out of booking
+      LEARN: splitting a live service
+
+ 15   operations
+      checkout -> VACANT_DIRTY -> clean -> inspect -> sellable;
+      maintenance -> OUT_OF_ORDER -> availability reacts
+      LEARN: choreography vs orchestration
+
+ 16   notification
+      retry/backoff, DLQ, idempotent consumers,
+      delayed messages (check-in reminders)
+      LEARN: duplicate and poison messages
+
+READ SIDE & PUBLIC
+
+ 17   reporting
+      projections, occupancy / ADR / RevPAR, projection rebuild + replay
+      LEARN: eventual consistency
+
+ 18   audit
+      append-only, who / what / when / old / new, across services
+
+ 19   content
+      website config, media metadata,
+      custom domain -> property resolution + cache,
+      reviews (backend APIs only)
+
+INTELLIGENCE  [PARKED]
+
+ 20   intelligence            SUSPENDED - deferred, see AI/ML section
+      feature store from events, 3 models, suggestion + feedback loop
+      LEARN: multi-tenant cold start, point-in-time correctness,
+             ML as a suggestion not an authority
+
+HARDENING
+
+ 21   Resilience & chaos pass
+      Polly policies, timeouts, bulkheads,
+      an explicit "what degrades when X is down" matrix,
+      verified by killing containers
+
+ 22   Observability
+      OpenTelemetry traces across Kong -> services -> RabbitMQ,
+      Prometheus + Grafana, correlation ids in logs
+
+LAST
+
+ 23   FRONTEND (Next.js)
+      platform admin, business dashboard, property back-office,
+      front desk, public property website
+
+ 24   Deployment
+      GitHub Actions CI/CD, Kubernetes manifests, AWS free tier
+
+
+VERIFICATION
+------------
+
+  PER STAGE
+    docker compose up -> service health endpoint green
+    -> dotnet test (Testcontainers spins a real Postgres per test class)
+    -> an .http smoke script exercising the stage use cases end to end
+
+  EVERY SERVICE
+    a tenant-isolation test asserting that tenant A token
+    cannot read tenant B rows
+
+  STAGE 10
+    a parallel-hold concurrency test that must show
+    ZERO double bookings under N concurrent requests
+
+  STAGE 11-12
+    failure-injection tests (gateway timeout, confirm-after-payment
+    failure) asserting the system converges to a correct state
+
+  STAGES 15-17
+    publish an event with the consumer stopped, restart it,
+    assert the projection catches up
+
+
+PRE-DECIDED CALLS YOU CAN OVERRIDE BEFORE I START
+-------------------------------------------------
+
+  1. 14 SERVICES, SEPARATE FROM DAY 1
+     (not modular-monolith-first) — you asked for microservices
+     architecture explicitly.
+     Exception: stay starts inside booking and is extracted
+     at Stage 14 on purpose.
+
+  2. AVAILABILITY INSIDE BOOKING, not its own service
+     (rationale above).
+
+  3. operations = housekeeping + maintenance merged.
+
+  4. AUTH IS OURS, WRITTEN IN .NET 10 — no Keycloak, no external IdP.
+     ASP.NET Core Identity + RS256 JWT + JWKS + rotating refresh
+     tokens, all inside the identity service. OpenIddict added later
+     only if real OIDC flows become necessary.
+
+  5. AI/ML IS PARKED for now (your call, 2026-09-08). Ideas kept
+     in the parking lot. Only the event-field capture in Stage 1
+     survives, because it cannot be backfilled and reporting
+     wants those fields anyway.
+
+
+  6. Design docs live in docs/.
+     Goal/ is left untouched as the original brief
+     (this plan file being the one addition).

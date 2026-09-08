@@ -1,0 +1,26 @@
+<Project>
+
+  <!--
+    Central Package Management.
+
+    Every csproj references packages WITHOUT a version:
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+
+    and the version is pinned here, once, for all 14 services. This is
+    what stops service #9 from quietly running a different EF Core than
+    service #4.
+
+    Versions are added at Stage 3, when the first project actually needs
+    a package. Deliberately empty until then rather than guessed.
+  -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Stage 3 populates this. -->
+  </ItemGroup>
+
+</Project>

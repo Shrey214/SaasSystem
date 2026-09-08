@@ -1,0 +1,1360 @@
+We are building the SaaS company/product, not a single hotel's software.
+
+                    ┌─────────────────────────────┐
+                    │       OUR SAAS PLATFORM      │
+                    │  Multi-Tenant Hotel SaaS     │
+                    └──────────────┬──────────────┘
+                                   │
+             ┌─────────────────────┼─────────────────────┐
+             │                     │                     │
+        BUSINESS A             BUSINESS B            BUSINESS C
+        Owner A                Owner B               Owner C
+             │                     │                     │
+       ┌─────┼─────┐               │             ┌─────┼─────┐
+       │     │     │               │             │     │     │
+     Hotel  Hotel  Hotel          Hotel         Hotel  Hotel  Hotel
+     Ujjain Indore Bhopal       Ahmedabad       Delhi Jaipur Surat
+
+And this gives us a very important rule:
+
+Every business is an independent customer of our SaaS, while each business can manage multiple properties from one centralized account.
+
+Now let's design the product properly.
+
+1. First: Define the entire product
+
+I want us to think about the product in 6 major layers.
+
+OUR SAAS PLATFORM
+│
+├── 1. PLATFORM MANAGEMENT
+│
+├── 2. BUSINESS / TENANT MANAGEMENT
+│
+├── 3. PROPERTY MANAGEMENT
+│
+├── 4. HOTEL OPERATIONS
+│
+├── 5. CUSTOMER / BOOKING EXPERIENCE
+│
+└── 6. SAAS BILLING & PLATFORM SERVICES
+
+But those are only high-level buckets.
+
+Underneath them we'll eventually have many business capabilities.
+
+2. PLATFORM MANAGEMENT
+
+This is our side of the SaaS.
+
+Our platform administrator should be able to manage the entire ecosystem.
+
+Platform Admin
+Platform Admin
+│
+├── Businesses
+├── Subscriptions
+├── Plans
+├── Features
+├── Platform Users
+├── Platform Configuration
+├── Platform Reports
+├── Support
+├── Audit
+└── System Monitoring
+Business management
+
+Platform admin can:
+
+view businesses
+search businesses
+create/suspend/activate business
+view business details
+see number of properties
+see subscription
+see usage
+see account status
+manage business lifecycle
+
+For example:
+
+Businesses
+────────────────────────────────
+
+Porwal Hotels
+Properties: 3
+Rooms: 120
+Plan: Professional
+Status: Active
+
+Royal Hospitality
+Properties: 2
+Rooms: 70
+Plan: Starter
+Status: Active
+
+ABC Hotels
+Properties: 5
+Rooms: 340
+Plan: Enterprise
+Status: Suspended
+
+This is platform-level functionality, not hotel functionality.
+
+3. BUSINESS / TENANT MANAGEMENT
+
+Now we enter Business A.
+
+Suppose:
+
+Business A
+Porwal Hotels
+
+The business owner has their own dashboard.
+
+Porwal Hotels
+│
+├── Dashboard
+├── Properties
+├── Users & Staff
+├── Roles & Permissions
+├── Reports
+├── Subscription
+├── Billing
+├── Business Settings
+└── Account Settings
+Business dashboard
+
+The owner should be able to see the performance of all properties together.
+
+Example:
+
+PORWAL HOTELS
+────────────────────────────────────
+
+Properties                 3
+Total Rooms              120
+Occupied                  82
+Occupancy                68%
+
+Today's Bookings          14
+This Month Bookings      384
+
+Revenue
+₹18,45,000
+
+------------------------------------
+
+PROPERTY PERFORMANCE
+
+Ujjain
+Occupancy: 74%
+Revenue: ₹7.2L
+
+Indore
+Occupancy: 63%
+Revenue: ₹5.8L
+
+Bhopal
+Occupancy: 66%
+Revenue: ₹5.4L
+
+Then the owner can switch to a specific property.
+
+4. MULTI-PROPERTY MANAGEMENT
+
+This is one of the core differentiators of our SaaS.
+
+Business owner:
+
+Porwal Hotels
+│
+├── Hotel Ujjain
+├── Hotel Indore
+├── Hotel Bhopal
+├── Hotel Ratlam
+└── Hotel Ahmedabad
+
+They should be able to:
+
+Add property
+Create Property
+│
+├── Property Name
+├── Property Type
+├── Address
+├── City
+├── State
+├── Country
+├── Contact
+├── Email
+├── Location
+├── Timezone
+├── Currency
+├── Tax Configuration
+├── Check-in Time
+├── Check-out Time
+├── Policies
+└── Images
+Property lifecycle
+DRAFT
+  ↓
+SETUP
+  ↓
+ACTIVE
+  ↓
+SUSPENDED
+  ↓
+ARCHIVED
+
+This gives us another useful state machine to implement later.
+
+5. USERS AND STAFF
+
+A business can have many employees.
+
+Example:
+
+Porwal Hotels
+│
+├── Owner
+│
+├── Ujjain
+│   ├── Manager
+│   ├── Receptionist
+│   └── Housekeeping
+│
+├── Indore
+│   ├── Manager
+│   └── Receptionist
+│
+└── Bhopal
+    ├── Manager
+    ├── Receptionist
+    └── Accountant
+
+Now the interesting part:
+
+A user may have access to one property or multiple properties.
+
+Example:
+
+Raj
+Role: Regional Manager
+
+Access:
+✓ Ujjain
+✓ Indore
+✗ Bhopal
+
+Another:
+
+Amit
+Role: Receptionist
+
+Access:
+✓ Ujjain
+✗ Indore
+✗ Bhopal
+
+So our authorization system eventually needs:
+
+User
+ +
+Tenant
+ +
+Role
+ +
+Permissions
+ +
+Property Access
+
+This will become a significant security/microservice problem later.
+
+6. PROPERTY MANAGEMENT
+
+Once the owner opens:
+
+Hotel Ujjain
+
+they enter the actual hotel-management side.
+
+Hotel Ujjain
+│
+├── Dashboard
+├── Property Settings
+├── Floors
+├── Rooms
+├── Room Types
+├── Amenities
+├── Pricing
+├── Availability
+├── Reservations
+├── Guests
+├── Payments
+├── Check-in / Check-out
+├── Housekeeping
+├── Maintenance
+├── Reviews
+├── Reports
+└── Website
+
+Now let's go deeper.
+
+7. HOTEL INVENTORY
+
+A hotel isn't just a collection of rooms.
+
+We need:
+
+Property
+│
+├── Building
+│
+├── Floors
+│
+├── Room Types
+│
+│   ├── Standard
+│   ├── Deluxe
+│   ├── Premium
+│   └── Suite
+│
+├── Physical Rooms
+│
+│   ├── 101
+│   ├── 102
+│   ├── 103
+│   └── ...
+│
+├── Beds
+├── Amenities
+└── Facilities
+
+Important distinction:
+
+Room Type
+Deluxe Room
+2 Adults
+1 King Bed
+WiFi
+AC
+TV
+₹3,000
+Physical Room
+Room 201
+Room Type = Deluxe
+Floor = 2
+Status = Active
+
+There could be:
+
+Deluxe Room Type
+
+201
+202
+203
+204
+205
+8. ROOM OPERATIONAL STATES
+
+A room can have different operational conditions.
+
+ACTIVE
+OUT_OF_ORDER
+MAINTENANCE
+BLOCKED
+
+Separately, housekeeping has its own status:
+
+VACANT_CLEAN
+VACANT_DIRTY
+INSPECTION
+OCCUPIED
+OUT_OF_ORDER
+
+And reservation availability is another concept entirely.
+
+This separation is important.
+
+Otherwise we end up with one giant RoomStatus enum trying to represent five different concepts.
+
+9. PRICING ENGINE
+
+This is where the product starts becoming genuinely interesting.
+
+We shouldn't just store:
+
+Room.Price = 3000
+
+Instead:
+
+Rate Plan
+│
+├── Standard Rate
+├── Non Refundable
+├── Breakfast Included
+├── Corporate Rate
+└── Special Offer
+
+And rates may depend on:
+
+Room Type
++
+Date
++
+Occupancy
++
+Rate Plan
++
+Meal Plan
++
+Season
++
+Promotion
++
+Coupon
++
+Tax
++
+Restrictions
+
+For example:
+
+Deluxe Room
+20 Sept
+
+2 Adults
+Standard Rate
+₹3,000
+
+Breakfast
+₹500
+
+Tax
+₹420
+
+Total
+₹3,920
+
+This will eventually give us a very nice pricing/availability domain to work with.
+
+10. AVAILABILITY
+
+Customer searches:
+
+20 Sept → 22 Sept
+2 Adults
+1 Room
+
+Our platform needs to answer:
+
+What can actually be booked?
+
+It must consider:
+
+Physical rooms
+      +
+Existing bookings
+      +
+Room holds
+      +
+Maintenance
+      +
+Blocked rooms
+      +
+Restrictions
+      +
+Number of requested rooms
+
+This is going to be one of our most important distributed-system learning areas.
+
+11. RESERVATIONS / BOOKINGS
+
+A booking isn't simply:
+
+INSERT booking
+
+We'll create an actual lifecycle.
+
+SEARCH
+   ↓
+ROOM SELECTED
+   ↓
+HOLD
+   ↓
+PAYMENT
+   ↓
+CONFIRMED
+
+Then:
+
+CONFIRMED
+   │
+   ├── CANCELLED
+   │
+   ├── NO_SHOW
+   │
+   └── CHECKED_IN
+          ↓
+      CHECKED_OUT
+
+And modification:
+
+CONFIRMED
+    ↓
+MODIFICATION REQUEST
+    ↓
+RE-CHECK AVAILABILITY
+    ↓
+RECALCULATE PRICE
+    ↓
+UPDATED
+12. ROOM HOLD
+
+This is essential for a real booking system.
+
+Imagine:
+
+User A → selects Room 101
+User B → selects Room 101
+
+We cannot allow both to believe they own the room.
+
+So:
+
+Room 101
+     ↓
+HOLD CREATED
+     ↓
+10 minute timer
+     ↓
+Payment
+
+If payment succeeds:
+
+HOLD
+ ↓
+BOOKING CONFIRMED
+
+If payment fails or timer expires:
+
+HOLD
+ ↓
+RELEASED
+
+This gives us real problems around:
+
+concurrency
+race conditions
+expiry
+background processing
+idempotency
+distributed locking
+
+Exactly the kind of problems we want to learn.
+
+13. GUEST MANAGEMENT
+
+We should distinguish:
+
+Customer ≠ Guest
+
+Example:
+
+Customer:
+Shreyash
+
+Booking:
+2 Rooms
+
+Guests:
+Shreyash
+Rahul
+Amit
+Priya
+
+The person paying/booked the rooms isn't necessarily every person staying.
+
+Guest functionality:
+
+guest profile
+contact details
+booking history
+nationality
+identity information
+special requests
+preferences
+stay history
+14. PAYMENT
+
+Hotel payment should be its own domain.
+
+Booking
+   ↓
+Payment Initiated
+   ↓
+Pending
+   ├── Success
+   │     ↓
+   │   Captured
+   │
+   └── Failed
+
+And refunds:
+
+Refund Requested
+      ↓
+Processing
+      ↓
+Refunded
+
+Later we'll deliberately introduce failures such as:
+
+Payment succeeded
+BUT
+booking confirmation failed
+
+or:
+
+Payment gateway timeout
+BUT
+payment actually succeeded
+
+That's where we'll learn:
+
+idempotency
+reconciliation
+webhooks
+eventual consistency
+Saga-style workflows
+15. CANCELLATION & REFUNDS
+
+The property can configure policies.
+
+Example:
+
+Cancellation Policy
+
+7+ days before arrival
+→ 100% refund
+
+2–6 days
+→ 50% refund
+
+Less than 2 days
+→ No refund
+
+Then:
+
+Customer requests cancellation
+          ↓
+Check booking
+          ↓
+Check policy
+          ↓
+Calculate refund
+          ↓
+Cancel booking
+          ↓
+Initiate refund
+          ↓
+Notify customer
+
+That is another multi-step distributed workflow.
+
+16. FRONT DESK OPERATIONS
+
+A real hotel system needs more than online bookings.
+
+Reception should handle:
+
+Today's Arrivals
+Today's Departures
+Current Guests
+Walk-in Booking
+Booking Search
+Room Assignment
+Check-in
+Check-out
+Payment Collection
+Invoice
+Room Change
+Cancellation
+No-show
+
+Example:
+
+Booking #PB10293
+
+Guest: Rahul
+Room Type: Deluxe
+Room: 203
+
+Arrival: 20 Sept
+Departure: 22 Sept
+
+[Check In]
+17. HOUSEKEEPING
+
+This should be a separate operational capability.
+
+Housekeeping
+│
+├── Room Status
+├── Cleaning Tasks
+├── Assign Staff
+├── Cleaning Started
+├── Cleaning Completed
+├── Inspection
+└── Maintenance Request
+
+Example:
+
+Room 203
+Checkout completed
+      ↓
+VACANT_DIRTY
+      ↓
+Cleaning Assigned
+      ↓
+Cleaning Completed
+      ↓
+Inspection
+      ↓
+VACANT_CLEAN
+
+That creates another event-driven workflow later.
+
+18. MAINTENANCE
+
+Hotel staff should be able to report:
+
+Room 204
+AC not working
+Priority: HIGH
+
+Then:
+
+Reported
+ ↓
+Assigned
+ ↓
+In Progress
+ ↓
+Resolved
+ ↓
+Room Available
+
+And during maintenance:
+
+Room 204
+     ↓
+OUT_OF_ORDER
+
+It must automatically affect availability.
+
+19. ADD-ONS / EXTRA SERVICES
+
+Eventually a booking shouldn't only contain the room.
+
+For example:
+
+Room
+₹3,000
+
+Breakfast
+₹500
+
+Extra Bed
+₹700
+
+Airport Pickup
+₹1,000
+
+Late Checkout
+₹500
+
+So:
+
+Booking
+│
+├── Room Charges
+├── Add-ons
+├── Discounts
+├── Taxes
+└── Total
+
+This will also lead us toward a hotel folio/charges concept.
+
+20. INVOICING
+
+The system should eventually generate:
+
+Invoice
+│
+├── Guest
+├── Booking
+├── Room Charges
+├── Services
+├── Discounts
+├── Taxes
+├── Payments
+└── Balance
+
+For example:
+
+Room                 ₹6,000
+Breakfast            ₹1,000
+Airport Pickup       ₹1,000
+Discount              -₹500
+Tax                  ₹1,350
+────────────────────────────
+Total                ₹8,850
+Paid                 ₹8,850
+Balance                  ₹0
+21. NOTIFICATIONS
+
+Our SaaS should support notifications for:
+
+Booking Confirmed
+Payment Successful
+Payment Failed
+Booking Cancelled
+Refund Completed
+Check-in Reminder
+Checkout Reminder
+Review Request
+
+Channels:
+
+Email
+SMS
+WhatsApp
+
+Initially we can keep it simple.
+
+Later:
+
+Booking Service
+       │
+       ▼
+   RabbitMQ
+       │
+       ├── Email
+       ├── SMS
+       └── WhatsApp
+
+Then we'll intentionally introduce:
+
+message failure
+retry
+duplicate messages
+dead-letter queue
+idempotent consumers
+delayed messages
+22. CUSTOMER-FACING WEBSITE
+
+Every property should eventually have its own public presence.
+
+Customer:
+
+Property Website
+      ↓
+Search Rooms
+      ↓
+Select Room
+      ↓
+Guest Details
+      ↓
+Payment
+      ↓
+Booking Confirmation
+
+Property owner can configure:
+
+Logo
+Hotel Name
+Images
+Description
+Amenities
+Facilities
+Contact
+Location
+Policies
+Social Links
+SEO
+Theme
+
+The same Next.js application can power all properties.
+
+Domain
+   ↓
+Identify Property
+   ↓
+Load Property Configuration
+   ↓
+Render Property Website
+
+So:
+
+hotelA.com
+hotelB.com
+hotelC.com
+
+can all ultimately be served by the same SaaS application.
+
+23. REVIEWS
+
+After checkout:
+
+Booking Completed
+      ↓
+Review Request
+      ↓
+Guest submits review
+      ↓
+Moderation
+      ↓
+Published
+
+Review can contain:
+
+Overall
+Cleanliness
+Location
+Staff
+Facilities
+Value
+Comment
+24. PROMOTIONS
+
+Properties should be able to create:
+
+Weekend Offer
+Early Bird
+Last Minute
+Seasonal Offer
+Coupon
+Promo Code
+Long Stay Discount
+Corporate Rate
+
+But the important part is that promotions have rules.
+
+Example:
+
+SUMMER25
+
+Valid:
+1 May → 30 June
+
+Discount:
+25%
+
+Room Types:
+Deluxe + Suite
+
+Minimum Stay:
+2 nights
+
+This becomes part of pricing rather than a random discount column.
+
+25. REPORTING
+
+At the property level:
+
+Revenue
+Occupancy
+ADR
+RevPAR
+Bookings
+Cancellations
+No-shows
+Room performance
+Payment collection
+
+At the business level:
+
+All Properties
+│
+├── Total Revenue
+├── Total Occupancy
+├── Total Bookings
+├── Best Performing Property
+├── Worst Performing Property
+└── Consolidated Reports
+
+At the platform level:
+
+Total Businesses
+Total Properties
+Total Rooms
+Total Bookings
+Platform Revenue
+Active Subscriptions
+Churn
+
+Three different reporting scopes.
+
+26. SAAS SUBSCRIPTION
+
+This is our business model.
+
+Example:
+
+STARTER
+₹999/month
+
+PROFESSIONAL
+₹2,999/month
+
+BUSINESS
+₹5,999/month
+
+Each plan could have entitlements:
+
+Starter
+├── 1 Property
+├── 20 Rooms
+├── 5 Users
+└── Basic Reports
+
+Professional
+├── 5 Properties
+├── 200 Rooms
+├── 50 Users
+├── Advanced Reports
+└── Custom Domain
+
+Now the platform needs to enforce:
+
+Can this business create another property?
+
+Can this business create another user?
+
+Can this business use custom domains?
+
+Can this business access advanced reports?
+
+This is SaaS entitlement management.
+
+Very important domain.
+
+27. AUDIT
+
+Across the system:
+
+Who?
+What?
+When?
+Where?
+Old Value?
+New Value?
+
+Example:
+
+User: Manager Ujjain
+Action: Room Price Updated
+
+Room: 203
+Old Price: ₹3,000
+New Price: ₹3,500
+Time: 10:32 AM
+
+This becomes especially important in a multi-tenant SaaS.
+
+28. The complete functional map
+
+So our current product map becomes:
+
+OUR SAAS PLATFORM
+│
+├── PLATFORM
+│   ├── Business Management
+│   ├── Platform Users
+│   ├── Plans
+│   ├── Features
+│   ├── Platform Billing
+│   ├── Platform Reports
+│   └── Platform Configuration
+│
+├── BUSINESS / TENANT
+│   ├── Business Profile
+│   ├── Users
+│   ├── Roles
+│   ├── Permissions
+│   ├── Property Access
+│   ├── Subscription
+│   ├── Billing
+│   └── Consolidated Reports
+│
+└── PROPERTY
+    │
+    ├── Property Configuration
+    │
+    ├── INVENTORY
+    │   ├── Buildings
+    │   ├── Floors
+    │   ├── Room Types
+    │   ├── Rooms
+    │   ├── Beds
+    │   ├── Amenities
+    │   └── Facilities
+    │
+    ├── PRICING
+    │   ├── Rate Plans
+    │   ├── Seasons
+    │   ├── Meal Plans
+    │   ├── Taxes
+    │   ├── Promotions
+    │   └── Coupons
+    │
+    ├── AVAILABILITY
+    │   ├── Inventory
+    │   ├── Holds
+    │   ├── Restrictions
+    │   └── Availability Search
+    │
+    ├── RESERVATIONS
+    │   ├── Booking
+    │   ├── Modification
+    │   ├── Cancellation
+    │   ├── No-show
+    │   └── Room Assignment
+    │
+    ├── GUESTS
+    │   ├── Guest Profiles
+    │   ├── Guest History
+    │   └── Guest Preferences
+    │
+    ├── PAYMENTS
+    │   ├── Payment
+    │   ├── Refund
+    │   ├── Reconciliation
+    │   └── Invoices
+    │
+    ├── STAY OPERATIONS
+    │   ├── Check-in
+    │   ├── Check-out
+    │   ├── Room Change
+    │   ├── Folio
+    │   └── Extra Charges
+    │
+    ├── HOUSEKEEPING
+    │   ├── Room Status
+    │   ├── Cleaning
+    │   └── Tasks
+    │
+    ├── MAINTENANCE
+    │   ├── Issues
+    │   ├── Work Orders
+    │   └── Room Blocking
+    │
+    ├── NOTIFICATIONS
+    │   ├── Email
+    │   ├── SMS
+    │   └── WhatsApp
+    │
+    ├── WEBSITE
+    │   ├── Property Website
+    │   ├── Branding
+    │   ├── Content
+    │   ├── Custom Domain
+    │   └── SEO
+    │
+    ├── REVIEWS
+    │
+    ├── REPORTS
+    │
+    └── AUDIT
+29. And now comes the really important part
+
+We should not create 20 microservices just because we have 20 modules.
+
+That would be a classic beginner mistake.
+
+Instead, after freezing the functionality, we're going to ask:
+
+Which business capabilities actually belong together?
+
+For example:
+
+Room
+Room Type
+Floor
+Amenity
+Property
+
+may naturally belong together initially.
+
+But:
+
+Booking
+Payment
+Notification
+
+have very different transaction boundaries and failure characteristics.
+
+And:
+
+SaaS Subscription
+Hotel Booking Payment
+
+are completely different businesses despite both involving money.
+
+30. We will deliberately find distributed-system problems
+
+This is actually one of the main reasons we're building this project.
+
+For example:
+
+Problem 1 — Double booking
+User A ──┐
+         ├──> Booking
+User B ──┘
+
+Both attempt Room 101.
+
+We'll learn concurrency.
+
+Problem 2 — Availability
+Availability
+     ↓
+Room Service
+     ↓
+Booking Service
+
+How do services obtain data without owning each other's database?
+
+We'll learn service communication.
+
+Problem 3 — Payment
+Booking
+   ↓
+Payment
+   ↓
+?
+
+Payment succeeds but booking fails.
+
+We'll learn distributed transactions / Saga concepts.
+
+Problem 4 — Notifications
+Booking Confirmed
+       ↓
+RabbitMQ
+       ↓
+Notification
+
+What if notification service is down?
+
+We'll learn eventual consistency, retry and DLQ.
+
+Problem 5 — Cache
+1000 users
+     ↓
+Availability
+     ↓
+Database
+
+Database gets hammered.
+
+We'll introduce Redis and learn cache invalidation.
+
+Problem 6 — Tenant isolation
+Business A
+    ↓
+GET /bookings
+    ↓
+Must NEVER return Business B
+
+We'll learn tenant context and service-level authorization.
+
+Problem 7 — Service failure
+Booking
+   ↓
+Property Service
+   X
+DOWN
+
+What should happen?
+
+Timeout?
+
+Retry?
+
+Fallback?
+
+Circuit breaker?
+
+We'll encounter this naturally rather than learning it as theory.
+
+31. Our development order
+
+So I recommend we follow this exact sequence:
+
+PHASE 1
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+PRODUCT / FUNCTIONAL DESIGN
+             ↓
+PHASE 2
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+DOMAIN / BOUNDED CONTEXT DESIGN
+             ↓
+PHASE 3
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+MICROSERVICE BOUNDARIES
+             ↓
+PHASE 4
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+SERVICE-TO-SERVICE COMMUNICATION
+             ↓
+PHASE 5
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+DATABASE OWNERSHIP
+             ↓
+PHASE 6
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+POSTGRESQL DATABASE DESIGN
+             ↓
+PHASE 7
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TABLE DESIGN
+             ↓
+PHASE 8
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMPLEMENTATION
+
+And only then:
+
+RabbitMQ
+Redis
+Kong
+ASP.NET Core Identity (.NET 10 auth)
+Payment Gateway
+Docker
+AWS
+CI/CD
+Kubernetes
+OpenTelemetry
+Prometheus
+Grafana
+
+introduced progressively where they solve an actual problem.
+
+The next thing I recommend
+
+Before we touch a single table, let's take the functional map above and create a proper Domain Blueprint.
+
+For every functionality, we'll define:
+
+Functionality	Who uses it	Business rule	Data involved	Transaction boundary	Possible service interaction	Future distributed problem
+Create Property	Business Owner	Property belongs to one Business	Business + Property	Local	Tenant/Identity	Tenant isolation
+Create Room	Property Manager	Room belongs to one Property	Room	Local	Property	Inventory consistency
+Search Availability	Customer	Only sellable inventory	Room + Booking	Cross-domain	Inventory + Booking	Consistency/cache
+Create Hold	Customer	Temporary ownership	Hold + Inventory	Critical	Booking/Inventory	Concurrency
+Payment	Customer	Must be idempotent	Payment	Separate	Booking	Distributed transaction
+Booking Confirmation	System	Confirm only after payment	Booking	Separate	Payment + Notification	Saga
+Send Notification	System	Must tolerate failure	Notification	Async	RabbitMQ later	Retry/DLQ
+Subscription	Business Owner	Feature access depends on plan	Subscription	Separate	Billing	Entitlements

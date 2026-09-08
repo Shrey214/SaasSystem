@@ -1,0 +1,51 @@
+# .NET
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+project.lock.json
+artifacts/
+TestResults/
+*.trx
+*.coverage
+coverage/
+
+# Rider / VS / VS Code
+.vs/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Node / Next.js (frontend, later)
+node_modules/
+.next/
+out/
+.pnpm-store/
+npm-debug.log*
+yarn-error.log*
+
+# Secrets & local config
+*.env
+.env.*
+!.env.example
+appsettings.Development.local.json
+appsettings.*.local.json
+secrets/
+*.pfx
+*.p12
+
+# Docker / infra local state
+.docker-data/
+pgdata/
+volumes/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
