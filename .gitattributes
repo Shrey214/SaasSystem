@@ -1,0 +1,45 @@
+# Normalise to LF in the repository; check out native on Windows.
+* text=auto
+
+# Always LF - these run inside Linux containers and break with CRLF.
+*.sh              text eol=lf
+*.yml             text eol=lf
+*.yaml            text eol=lf
+Dockerfile        text eol=lf
+*.Dockerfile      text eol=lf
+.dockerignore     text eol=lf
+*.conf            text eol=lf
+
+# Always CRLF - Windows-only tooling.
+*.ps1             text eol=crlf
+*.cmd             text eol=crlf
+*.bat             text eol=crlf
+
+# Source and docs: normalised, LF in the repo.
+*.cs              text eol=lf diff=csharp
+*.csproj          text eol=lf
+*.sln             text eol=crlf
+*.props           text eol=lf
+*.targets         text eol=lf
+*.json            text eol=lf
+*.md              text eol=lf
+*.sql             text eol=lf
+*.http            text eol=lf
+*.ts              text eol=lf
+*.tsx             text eol=lf
+
+# The original brief - leave exactly as written.
+Goal/*.txt        text eol=lf
+
+# EF Core migrations are generated; keep them out of diffs and reviews.
+**/Migrations/*.cs    text eol=lf linguist-generated=true
+
+# Binary - never touched, never diffed.
+*.png             binary
+*.jpg             binary
+*.jpeg            binary
+*.gif             binary
+*.ico             binary
+*.pdf             binary
+*.pfx             binary
+*.onnx            binary
