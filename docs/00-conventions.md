@@ -74,13 +74,19 @@ One PostgreSQL instance locally, **one database per service**, named
 
 ### Required columns
 
-Every table:
+Every entity table:
 
 ```sql
-id          uuid        primary key,
+id          uuid        primary key,     -- v7, generated in .NET
 created_at  timestamptz not null default now(),
 updated_at  timestamptz not null default now()
 ```
+
+Internal log and queue tables use `id bigint generated always as identity`
+instead. Which key type a table gets is decided by
+[ADR-0010](adr/0010-key-strategy-uuidv7-bigint-natural.md), not by
+habit — `uuid` everywhere would put 16-byte keys on the highest-volume,
+append-only tables in exchange for properties they never use.
 
 Every **tenant-scoped** table adds `tenant_id uuid not null`, and it is the
 **first column of the primary index**. Every **property-scoped** table also
@@ -94,7 +100,9 @@ logical restore).
 
 | Concept | Type | Why |
 |---|---|---|
-| identifier | `uuid` (v7) | time-ordered so it indexes like a sequence, unique across services so no coordination is needed |
+| entity identifier | `uuid` (v7) | time-ordered so it indexes like a sequence; unique across all 14 databases with no coordination; not enumerable in a URL |
+| internal log/queue key | `bigint` identity | outbox, processed_messages, idempotency_keys, error_logs, audit, reporting read models — never exposed, never cross-referenced, highest volume, and a monotonic sequence is useful for ordered draining |
+| reference/lookup key | natural key | `currencies.code = 'INR'`, not a surrogate. One fewer join on every price query |
 | money | `numeric(18,4)` + `currency char(3)` | never `float`, never `money`. Amount and currency always travel together |
 | instant | `timestamptz` | stored UTC, rendered in the property's timezone |
 | **stay night** | `date` | a hotel night is a calendar date, not an instant. Arrival 20 Sept means the night of the 20th regardless of check-in clock time |

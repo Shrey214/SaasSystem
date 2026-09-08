@@ -184,10 +184,24 @@ repository. A service without that test is not finished.
 
 ## 6. Identifiers
 
-**UUID v7** for every primary key. Time-ordered, so it indexes like a
-sequence instead of fragmenting a B-tree the way v4 does; globally
-unique, so `booking` can mint an id without asking anyone; and it does
-not leak volume the way `/bookings/1043` does.
+**UUID v7 for entity tables** — anything referenced across services or
+addressable in a URL. Time-ordered, so it indexes like a sequence instead
+of fragmenting a B-tree the way v4 does; globally unique, so `booking`
+can mint an id without asking anyone; assigned in the constructor, so an
+aggregate can raise a domain event carrying its own id before the row
+exists; and it does not leak volume the way `/bookings/1043` does.
+
+**`bigint` identity for internal log and queue tables** — outbox,
+processed messages, idempotency keys, error logs, audit entries,
+reporting read models. Never exposed, never referenced from another
+service, highest volume in the system, and the sequence gives ordered
+draining for free.
+
+**Natural keys for reference data** — `currencies.code = 'INR'`, not a
+surrogate id nobody can read.
+
+Full reasoning and the rejected options in
+[ADR-0010](adr/0010-key-strategy-uuidv7-bigint-natural.md).
 
 **No shared sequences.** A sequence is a coordination point, and
 coordination between services is what we are trying to avoid.
@@ -208,8 +222,8 @@ booking (`Goal/Domain.txt` Part 6, *Booking Number Generation*), and a
 guessable reference is an enumeration attack on other guests' bookings.
 
 **Reference data** — currency codes, country codes, timezones — is not
-a service. It is a small versioned table seeded by migration in each
-service that needs it. A service to answer "is INR a currency" is a
+a service. It is a small versioned table with a **natural primary key**,
+seeded by migration in each service that needs it. A service to answer "is INR a currency" is a
 network hop in exchange for nothing.
 
 ---

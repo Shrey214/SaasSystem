@@ -17,6 +17,7 @@ It is "what did we already consider, and why did it lose".
 | [0007](0007-defer-ai-ml-keep-the-data.md) | Defer AI/ML, keep the data | Accepted | Parking a model is reversible; failing to record `lead_time_days` is not |
 | [0008](0008-error-logs-in-each-services-own-database.md) | Errors to stdout **and** each service's own `error_logs` table | Accepted | Platform-admin support screens need a queryable tenant-scoped table; a shared log database would break ADR-0003 |
 | [0009](0009-right-size-clean-architecture-per-service.md) | Clean Architecture, right-sized per service | Accepted | The rule is the inward dependency, not the project count. 8 services Full, 4 Lean, 2 Minimal — assigned by whether the service protects invariants |
+| [0010](0010-key-strategy-uuidv7-bigint-natural.md) | uuid v7 for entities, bigint for log tables, natural keys for lookups | Accepted | `bigint` is still right for a monolith; three architecture-specific reasons make it wrong for entities here, and uuid wrong for the outbox |
 
 ## Superseded
 
