@@ -1,0 +1,30 @@
+<Project>
+
+  <!-- Inherit everything from the repository root, then relax what does
+       not apply to test code. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      Test projects keep warnings-as-errors, but these four rules are about
+      library design and actively conflict with good test code:
+
+      CA1707  underscores in member names. Our own convention is
+              Method_Scenario_ExpectedOutcome (docs/00-conventions.md 7),
+              which is what makes a failing test name readable in CI output.
+      CA1711  type names ending in "Collection". xunit REQUIRES the
+              [CollectionDefinition] type to be named that way.
+      CA2007  ConfigureAwait(false). There is no synchronisation context to
+              deadlock against in a test host, and it triples the noise.
+      CA1861  constant arrays as arguments. Inline data in a test is
+              clearer than a hoisted static field.
+    -->
+    <NoWarn>$(NoWarn);CA1707;CA1711;CA2007;CA1861</NoWarn>
+  </PropertyGroup>
+
+</Project>

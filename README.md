@@ -16,8 +16,8 @@ SaaS Platform
 
 | | |
 |---|---|
-| Stage | **2 done — PostgreSQL 17 + pgAdmin running, 13 databases, isolation verified** |
-| Next | Stage 3 — solution scaffold + BuildingBlocks |
+| Stage | **3 done — solution + 6 BuildingBlocks libraries, 29 tests passing** |
+| Next | Stage 4 — the `tenant` service, first runnable vertical slice |
 | Services running | none yet — Stage 4 brings up the first one |
 | Frontend | deliberately last (Stage 23) |
 | AI/ML | parked — [ADR-0007](docs/adr/0007-defer-ai-ml-keep-the-data.md) |
@@ -83,6 +83,16 @@ those scripts only execute on an empty volume.
 reach its own database and that all 156 cross-service combinations are
 refused. Creating 13 databases is easy; a cluster with no isolation looks
 identical until you try the connection that should fail.
+
+### Build and test
+
+```powershell
+dotnet build          # warnings are errors
+dotnet test           # 29 tests; the integration ones start their own postgres
+```
+
+Integration tests use Testcontainers, so they need Docker running but not
+`up.ps1` - they start and dispose their own PostgreSQL.
 
 ## Repository layout
 

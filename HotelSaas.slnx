@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/HotelSaas.BuildingBlocks.Application/HotelSaas.BuildingBlocks.Application.csproj" />
+    <Project Path="src/BuildingBlocks/HotelSaas.BuildingBlocks.Domain/HotelSaas.BuildingBlocks.Domain.csproj" />
+    <Project Path="src/BuildingBlocks/HotelSaas.BuildingBlocks.Messaging/HotelSaas.BuildingBlocks.Messaging.csproj" />
+    <Project Path="src/BuildingBlocks/HotelSaas.BuildingBlocks.Observability/HotelSaas.BuildingBlocks.Observability.csproj" />
+    <Project Path="src/BuildingBlocks/HotelSaas.BuildingBlocks.Persistence/HotelSaas.BuildingBlocks.Persistence.csproj" />
+    <Project Path="src/BuildingBlocks/HotelSaas.BuildingBlocks.Web/HotelSaas.BuildingBlocks.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HotelSaas.BuildingBlocks.Tests/HotelSaas.BuildingBlocks.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\HotelSaas.BuildingBlocks.Application\HotelSaas.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\HotelSaas.BuildingBlocks.Persistence\HotelSaas.BuildingBlocks.Persistence.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Uses ASP.NET Core types (HttpContext, middleware) without being an app. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>
