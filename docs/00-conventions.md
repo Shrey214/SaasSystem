@@ -31,7 +31,10 @@ from the brief, the divergence is recorded in an ADR.
 
 ## 2. Service layout
 
-Every service is four projects. The dependency arrows only point inward.
+Most services are four projects; a few are fewer. The tier is set per
+service by [ADR-0009](adr/0009-right-size-clean-architecture-per-service.md)
+and listed in `docs/05-code-structure.md` §2.4. The dependency arrows
+point inward at every tier.
 
 ```
 src/services/<name>/
