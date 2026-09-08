@@ -59,7 +59,7 @@ job on a read path.
 
 ## Consequences
 
-- The codebase is not uniform, so `docs/05-code-structure.md` §2.5 must
+- The codebase is not uniform, so `docs/05-code-structure.md` §2.4 must
   state each service's tier explicitly. "Look at the neighbouring
   service" stops being reliable guidance.
 - Tiers move **upward** cheaply. Promoting `Core` into `Domain` +

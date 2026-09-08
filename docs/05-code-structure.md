@@ -42,7 +42,7 @@ application at `src/web/` that talks to all of them through the gateway.
 
 ## 2. Anatomy of one service
 
-Clean Architecture, **right-sized per service** — see §2.4 and
+Clean Architecture, **right-sized per service** — see §2.3 and
 [ADR-0009](adr/0009-right-size-clean-architecture-per-service.md). Most
 services get four projects; a few genuinely do not need them.
 
@@ -57,7 +57,7 @@ src/services/tenant/
 └── Dockerfile
 ```
 
-### The dependency rule
+### 2.1 The dependency rule
 
 Arrows point **inward only**:
 
@@ -74,7 +74,7 @@ Api ──────► Application ──────► Domain
 | **Infrastructure** | Application, Domain | EF Core `DbContext`, entity configurations, migrations, repository implementations, HTTP clients, message consumers, outbox wiring |
 | **Api** | Application, Infrastructure | endpoints, DI registration, middleware pipeline, `Program.cs`, `appsettings.json` |
 
-### Why four projects instead of one
+### 2.2 Why separate projects at all
 
 Because the compiler then enforces the boundary that a folder cannot.
 
@@ -103,7 +103,7 @@ That inversion is what makes the use case testable without a database,
 and what makes swapping PostgreSQL for something else a change in one
 project.
 
-### 2.4 Clean Architecture is the dependency rule, not the project count
+### 2.3 Clean Architecture is the dependency rule, not the project count
 
 This is the part that gets misread. Clean Architecture is **one rule**:
 
@@ -131,7 +131,7 @@ handed — it buys nothing at all and is pure ceremony.
 
 Yes to 1–3 → it needs a domain model. Yes to 4 → it does not.
 
-### 2.5 The three tiers
+### 2.4 The three tiers
 
 | Tier | Projects | Services |
 |---|---|---|
@@ -171,7 +171,7 @@ Tiers move **upward** freely: if `guest` grows real invariants, promoting
 dependency rule was never broken. That is the point of choosing the rule
 over the ceremony.
 
-### 2.6 Commands go through the domain, queries do not
+### 2.5 Commands go through the domain, queries do not
 
 Within a Full-tier service, reads and writes are treated differently —
 CQRS in the light sense, no separate databases, no event sourcing:
@@ -740,7 +740,7 @@ compiler in it.
 
 | Folder | Purpose |
 |---|---|
-| `src/services/<name>/Domain` | business rules, zero dependencies (Full tier only — §2.5) |
+| `src/services/<name>/Domain` | business rules, zero dependencies (Full tier only — §2.4) |
 | `src/services/<name>/Application` | use cases, one folder per feature |
 | `src/services/<name>/Infrastructure` | EF Core, migrations, clients, consumers |
 | `src/services/<name>/Api` | endpoints, DI, middleware |
