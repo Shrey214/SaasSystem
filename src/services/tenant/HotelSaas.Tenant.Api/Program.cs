@@ -30,7 +30,18 @@ builder.Services.AddHotelSaasWeb(tenant =>
 // in all 14 services comes from ProblemDetailsFactory.
 builder.Services.AddHotelSaasControllers();
 
-builder.Services.AddOpenApi();
+// Swagger. Document from the framework, UI from Swashbuckle - the
+// supported split in .NET 9+ (see OpenApiSetup).
+builder.Services.AddHotelSaasOpenApi(
+    serviceName: "tenant",
+    description:
+        "Business (tenant) registration, email verification and lifecycle. " +
+        "A business row IS a tenant - its id is the tenant_id every other " +
+        "service stores. See docs/06-tenant-service.txt.",
+
+    // Stage 4 only: lets the /me endpoints be tried from the UI while the
+    // tenant still comes from a forgeable header. Removed at stage 5.
+    includeTenantHeaderScheme: builder.Environment.IsDevelopment());
 
 WebApplication app = builder.Build();
 
@@ -41,10 +52,11 @@ app.UseHotelSaasRequestLogging();
 
 app.MapControllers();
 
+// Development only, and it maps nothing outside it.
+app.UseHotelSaasSwagger("tenant");
+
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
-
     // Migrations are applied at startup in Development only.
     //
     // Never in production: two instances starting together would both try to

@@ -78,8 +78,12 @@ Or run the service from source against the containerised database:
 dotnet run --project src/services/tenant/HotelSaas.Tenant.Api
 ```
 
-Then work down `src/services/tenant/HotelSaas.Tenant.Api/tenant.http`, which
-walks the whole lifecycle and says what each response should be.
+Then either open **http://localhost:5101/swagger** and click through it, or
+work down `src/services/tenant/HotelSaas.Tenant.Api/tenant.http`, which walks
+the whole lifecycle and says what each response should be.
+
+In Swagger, hit **Authorize** and paste a `businessId` to set `X-Tenant-Id` —
+that is what makes the `/me` endpoints work while there is still no login.
 
 `up.ps1` creates `infra/docker/.env` from `.env.example` on first run.
 Add `-Fresh` to wipe the volumes and re-run the database init scripts —
@@ -88,7 +92,8 @@ those scripts only execute on an empty volume.
 
 | | |
 |---|---|
-| tenant service | http://localhost:5101/health |
+| **tenant service — Swagger** | **http://localhost:5101/swagger** |
+| tenant service — health | http://localhost:5101/health |
 | pgAdmin | http://localhost:5050 |
 | PostgreSQL | `localhost:5433`, user `postgres` (5433 because a local postgres install usually owns 5432) |
 | Databases | 13 x `hs_<service>`, each with its own login role |

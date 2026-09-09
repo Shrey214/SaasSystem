@@ -932,6 +932,15 @@ OPERATIONS
   GET  /health/ready                             200/503 readiness
   GET  /boom                                     500 Development only
 
+SWAGGER (Development only)
+  GET  /swagger                                  the UI
+  GET  /openapi/v1.json                          the document
+  GET  /                                         302 -> /swagger
+
+  Hit Authorize in the UI and paste a businessId to set X-Tenant-Id. That is
+  what makes the /me endpoints usable while there is still no login; it
+  disappears at stage 5 along with the header itself.
+
 ** THE NOTABLE ABSENCE: no service-to-service endpoints. Zero synchronous
    callers. subscription, identity and reporting all learn about businesses
    from EVENTS, never by calling here - which is why this service being down

@@ -148,6 +148,42 @@ cannot read tenant B's rows. A service without that test is not done.
 - Times in payloads are ISO-8601 with an offset. Stay dates are plain
   `YYYY-MM-DD`.
 
+### Swagger
+
+Every service exposes Swagger in **Development only**, via two calls from
+`BuildingBlocks.Web`:
+
+```csharp
+builder.Services.AddHotelSaasOpenApi(
+    serviceName: "tenant",
+    description: "...",
+    includeTenantHeaderScheme: builder.Environment.IsDevelopment());
+
+// after MapControllers()
+app.UseHotelSaasSwagger("tenant");
+```
+
+| | |
+|---|---|
+| UI | `http://localhost:<port>/swagger` |
+| document | `http://localhost:<port>/openapi/v1.json` |
+| `/` | 302 to `/swagger`, so a browser lands somewhere useful |
+
+The **document** comes from `Microsoft.AspNetCore.OpenApi`, which is part of
+the framework and reads the `[HttpPost]`, `[ProducesResponseType]` and
+`[EndpointSummary]` attributes the controllers already carry. Only the **UI**
+comes from Swashbuckle — that split is the supported arrangement in .NET 9+,
+and adding full Swashbuckle would generate a second, competing document.
+
+So an endpoint appears in Swagger correctly because it is *declared*
+correctly. Annotate every action with `[EndpointSummary]` and one
+`[ProducesResponseType]` per status code it can actually return.
+
+**Never enabled outside Development.** An interactive, self-documenting
+client for every endpoint — including the platform-admin ones — is not
+something to put on a deployed instance. Whether to publish a curated
+document is a gateway decision, and belongs with Kong at Stage 5.
+
 ## 6. Events
 
 Name: `<service>.<aggregate>.<past-tense-verb>.v<n>` —
