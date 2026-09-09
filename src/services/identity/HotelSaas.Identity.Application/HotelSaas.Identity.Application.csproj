@@ -1,0 +1,11 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\HotelSaas.Identity.Domain\HotelSaas.Identity.Domain.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\HotelSaas.BuildingBlocks.Application\HotelSaas.BuildingBlocks.Application.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+  </PropertyGroup>
+
+</Project>

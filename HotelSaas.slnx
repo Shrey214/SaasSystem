@@ -9,6 +9,12 @@
     <Project Path="src/BuildingBlocks/HotelSaas.BuildingBlocks.Web/HotelSaas.BuildingBlocks.Web.csproj" />
   </Folder>
   <Folder Name="/src/services/" />
+  <Folder Name="/src/services/identity/">
+    <Project Path="src/services/identity/HotelSaas.Identity.Api/HotelSaas.Identity.Api.csproj" />
+    <Project Path="src/services/identity/HotelSaas.Identity.Application/HotelSaas.Identity.Application.csproj" />
+    <Project Path="src/services/identity/HotelSaas.Identity.Domain/HotelSaas.Identity.Domain.csproj" />
+    <Project Path="src/services/identity/HotelSaas.Identity.Infrastructure/HotelSaas.Identity.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/src/services/tenant/">
     <Project Path="src/services/tenant/HotelSaas.Tenant.Api/HotelSaas.Tenant.Api.csproj" />
     <Project Path="src/services/tenant/HotelSaas.Tenant.Application/HotelSaas.Tenant.Application.csproj" />
