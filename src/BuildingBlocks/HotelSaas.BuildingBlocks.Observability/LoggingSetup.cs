@@ -20,6 +20,15 @@ public static class LoggingSetup
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.Host.UseSerilog((context, services, configuration) => configuration
+
+            // Code sets the DEFAULTS first, configuration overrides them
+            // second. The other order means appsettings cannot turn on EF
+            // command logging to diagnose something, which is exactly when
+            // you want it.
+            .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
+
             .ReadFrom.Configuration(context.Configuration)
             .ReadFrom.Services(services)
             .Enrich.FromLogContext()
@@ -28,12 +37,6 @@ public static class LoggingSetup
             // Serilog.Enrichers.Environment exists for this, but one
             // property is not worth another package.
             .Enrich.WithProperty("machine", Environment.MachineName)
-
-            // EF logs every command at Information, which drowns everything
-            // else. Warnings from EF still come through.
-            .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Warning)
-            .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
-            .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
 
             .WriteTo.Console(
                 // Development: readable in a terminal. Anywhere else: JSON,

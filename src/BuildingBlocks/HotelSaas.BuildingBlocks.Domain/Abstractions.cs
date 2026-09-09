@@ -29,3 +29,26 @@ public interface IDomainEvent
 
     DateTimeOffset OccurredAt { get; }
 }
+
+// A domain event that must also reach other services.
+//
+// Not every domain event is publishable - most stay inside the service.
+// Implementing this is what makes SaveChangesAsync copy it into the outbox
+// in the same transaction (ADR-0006).
+public interface IPublishableEvent : IDomainEvent
+{
+    // e.g. tenant.business.registered.v1
+    string EventType { get; }
+
+    string AggregateType { get; }
+
+    Guid AggregateId { get; }
+
+    // Declared by the event, not taken from the request context.
+    //
+    // Business registration is a PUBLIC endpoint - there is no tenant in
+    // context yet, and the tenant the event refers to is the business being
+    // created. Only the event knows that, so it says so explicitly rather
+    // than the outbox guessing.
+    Guid? TenantId { get; }
+}

@@ -1,4 +1,4 @@
-namespace HotelSaas.BuildingBlocks.Application;
+namespace HotelSaas.BuildingBlocks.Domain;
 
 // What kind of failure this is. Mapped to an HTTP status code in exactly
 // one place (docs/05-code-structure.md 7).

@@ -1,4 +1,4 @@
-using HotelSaas.BuildingBlocks.Application;
+using HotelSaas.BuildingBlocks.Domain;
 using Microsoft.AspNetCore.Http;
 
 namespace HotelSaas.BuildingBlocks.Web;
@@ -39,6 +39,10 @@ public static class ResultExtensions
             ? Results.Created(location(result.Value), result.Value)
             : Problem(result.Error);
     }
+
+    // An Error straight to a problem response, for the read paths that
+    // never build a Result in the first place.
+    public static IResult ToProblemResult(this Error error) => Problem(error);
 
     private static IResult Problem(Error error)
     {

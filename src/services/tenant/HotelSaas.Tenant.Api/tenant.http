@@ -1,0 +1,205 @@
+### Tenant service — clickable smoke test
+###
+### Run the service first:
+###   ./infra/scripts/up.ps1                      (postgres)
+###   dotnet run --project src/services/tenant/HotelSaas.Tenant.Api
+###
+### or containerised:
+###   ./infra/scripts/up.ps1 -Profile core -Build
+###
+### Work down the file in order. Copy businessId and verificationToken from
+### the register response into the variables below.
+
+@host = http://localhost:5101
+@businessId = paste-the-businessId-here
+@verificationToken = paste-the-verificationToken-here
+
+
+### --- operations -------------------------------------------------------
+
+### Liveness. Answers even when postgres is down - restarting the process
+### would not fix an unreachable database and would lose the buffered
+### error log.
+GET {{host}}/health
+
+### Readiness. This one SHOULD fail when postgres is unreachable or a
+### migration is pending, so the load balancer stops sending traffic while
+### the process stays alive.
+GET {{host}}/health/ready
+
+### Development only: throws on purpose, to prove the exception middleware
+### writes an error_logs row naming the file and line in OUR code.
+### Then look for it:
+###   docker exec hs-postgres psql -U postgres -d hs_tenant -x \
+###     -c "select fault_type, fault_method, fault_line, fingerprint from error_logs order by id desc limit 1"
+GET {{host}}/boom
+
+
+### --- registration (public) --------------------------------------------
+
+### 201. Copy businessId and verificationToken into the variables above.
+### The token is echoed ONLY in Development; stage 16 emails it instead.
+POST {{host}}/api/v1/businesses
+Content-Type: application/json
+
+{
+  "legalName": "Porwal Hotels Pvt Ltd",
+  "displayName": "Porwal Hotels",
+  "ownerEmail": "owner@porwalhotels.dev",
+  "ownerName": "Shreyash Porwal",
+  "country": "IN"
+}
+
+### 409 tenant.email_already_registered. Note the UPPERCASE address still
+### collides - the column is normalised on write, so a plain unique index
+### gives case-insensitive uniqueness.
+POST {{host}}/api/v1/businesses
+Content-Type: application/json
+
+{
+  "legalName": "Copycat Hotels",
+  "ownerEmail": "OWNER@PORWALHOTELS.DEV",
+  "ownerName": "Someone Else",
+  "country": "IN"
+}
+
+### 400 validation_failed, with a per-field map in camelCase so the frontend
+### can attach each message to the input that caused it.
+POST {{host}}/api/v1/businesses
+Content-Type: application/json
+
+{
+  "legalName": "",
+  "ownerEmail": "not-an-email",
+  "ownerName": "",
+  "country": "INDIA"
+}
+
+
+### --- verification -----------------------------------------------------
+
+### 409 tenant.verification_token_invalid
+POST {{host}}/api/v1/businesses/{{businessId}}/verify-email
+Content-Type: application/json
+
+{ "token": "definitely-not-the-token" }
+
+### 200, status becomes Active. Self-service: no platform-admin approval.
+POST {{host}}/api/v1/businesses/{{businessId}}/verify-email
+Content-Type: application/json
+
+{ "token": "{{verificationToken}}" }
+
+### 409 tenant.already_verified
+POST {{host}}/api/v1/businesses/{{businessId}}/verify-email
+Content-Type: application/json
+
+{ "token": "{{verificationToken}}" }
+
+### 202 whatever happened. Keyed by email with no registration attempt
+### behind it, so a distinguishable response would be a free
+### address-checking oracle. Also invalidates any earlier link.
+POST {{host}}/api/v1/businesses/resend-verification
+Content-Type: application/json
+
+{ "ownerEmail": "owner@porwalhotels.dev" }
+
+
+### --- the caller's own business ----------------------------------------
+###
+### X-Tenant-Id is a STAGE 4 STUB and is trivially forged. It works only in
+### Development. Stage 5 replaces it with a validated RS256 token and
+### deletes the header path entirely (ADR-0004).
+
+### 200
+GET {{host}}/api/v1/businesses/me
+X-Tenant-Id: {{businessId}}
+
+### 200
+GET {{host}}/api/v1/businesses/me/profile
+X-Tenant-Id: {{businessId}}
+
+### 204
+PUT {{host}}/api/v1/businesses/me/profile
+X-Tenant-Id: {{businessId}}
+Content-Type: application/json
+
+{
+  "legalAddress": "12 Mahakal Road",
+  "city": "Ujjain",
+  "state": "Madhya Pradesh",
+  "postalCode": "456001",
+  "contactPhone": "+91 99999 00000",
+  "taxIdentifier": "23AAAAA0000A1Z5",
+  "websiteUrl": "https://porwalhotels.example"
+}
+
+### 400. A javascript: URL rendered on a property website later would be
+### stored XSS, and the cheapest place to refuse it is on the way in.
+PUT {{host}}/api/v1/businesses/me/profile
+X-Tenant-Id: {{businessId}}
+Content-Type: application/json
+
+{ "websiteUrl": "javascript:alert(1)" }
+
+### 200. No ?limit= needed - a non-nullable int query parameter would be
+### REQUIRED in minimal APIs, which is a bug this endpoint had.
+GET {{host}}/api/v1/businesses/me/status-history
+X-Tenant-Id: {{businessId}}
+
+
+### --- platform administration ------------------------------------------
+###
+### These take an id in the route because a platform admin legitimately acts
+### on other tenants. Separate prefix from day one so stage 5 adds an
+### authorization attribute rather than re-routing anything.
+
+### 200, cursor-paginated
+GET {{host}}/api/v1/platform/businesses?limit=10
+
+### 200
+GET {{host}}/api/v1/platform/businesses?status=Active&q=porwal
+
+### 400 tenant.unknown_status, naming the valid values
+GET {{host}}/api/v1/platform/businesses?status=Nonsense
+
+### 200
+GET {{host}}/api/v1/platform/businesses/{{businessId}}
+
+### 204
+POST {{host}}/api/v1/platform/businesses/{{businessId}}/suspend
+Content-Type: application/json
+
+{ "reason": "non-payment for 60 days" }
+
+### 409 tenant.invalid_status_transition. Two admins both clicking suspend
+### is ordinary, so it is a refusal, not a fault.
+POST {{host}}/api/v1/platform/businesses/{{businessId}}/suspend
+Content-Type: application/json
+
+{ "reason": "non-payment for 60 days" }
+
+### 400 validation_failed - a reason is the only record of why a paying
+### customer was cut off, so it has to be a real one.
+POST {{host}}/api/v1/platform/businesses/{{businessId}}/suspend
+Content-Type: application/json
+
+{ "reason": "no" }
+
+### 204, un-suspends. This is what Goal/Domain.txt Part 1 means by
+### "Business Activation | Platform Admin" - not approving new signups.
+POST {{host}}/api/v1/platform/businesses/{{businessId}}/activate
+
+### 204, terminal. Never a delete: bookings in another database reference
+### this tenant id with no foreign key to protect them.
+POST {{host}}/api/v1/platform/businesses/{{businessId}}/archive
+
+
+### --- what to look at afterwards ---------------------------------------
+###
+### Every lifecycle change wrote an outbox row, in the SAME transaction as
+### the business change, and all of them are still unpublished - there is no
+### broker until stage 7. That is the design working, not a gap.
+###
+###   docker exec hs-postgres psql -U postgres -d hs_tenant \
+###     -c "select id, event_type, published_at is null as unpublished from outbox_messages order by id"

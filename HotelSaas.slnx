@@ -8,7 +8,16 @@
     <Project Path="src/BuildingBlocks/HotelSaas.BuildingBlocks.Persistence/HotelSaas.BuildingBlocks.Persistence.csproj" />
     <Project Path="src/BuildingBlocks/HotelSaas.BuildingBlocks.Web/HotelSaas.BuildingBlocks.Web.csproj" />
   </Folder>
+  <Folder Name="/src/services/" />
+  <Folder Name="/src/services/tenant/">
+    <Project Path="src/services/tenant/HotelSaas.Tenant.Api/HotelSaas.Tenant.Api.csproj" />
+    <Project Path="src/services/tenant/HotelSaas.Tenant.Application/HotelSaas.Tenant.Application.csproj" />
+    <Project Path="src/services/tenant/HotelSaas.Tenant.Domain/HotelSaas.Tenant.Domain.csproj" />
+    <Project Path="src/services/tenant/HotelSaas.Tenant.Infrastructure/HotelSaas.Tenant.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/HotelSaas.BuildingBlocks.Tests/HotelSaas.BuildingBlocks.Tests.csproj" />
+    <Project Path="tests/HotelSaas.Tenant.IntegrationTests/HotelSaas.Tenant.IntegrationTests.csproj" />
+    <Project Path="tests/HotelSaas.Tenant.UnitTests/HotelSaas.Tenant.UnitTests.csproj" />
   </Folder>
 </Solution>

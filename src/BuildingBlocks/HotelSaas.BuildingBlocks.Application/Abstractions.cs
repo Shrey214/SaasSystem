@@ -58,3 +58,14 @@ public interface IUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
+
+// The id that ties this request to everything it causes.
+//
+// Minted at the edge and copied into every downstream call and every
+// message (docs/03-communication.md 5). One value spans a whole customer
+// booking across nine services, which is what makes "why did this booking
+// not confirm" answerable at all.
+public interface ICorrelationContext
+{
+    Guid CorrelationId { get; }
+}

@@ -16,9 +16,9 @@ SaaS Platform
 
 | | |
 |---|---|
-| Stage | **3 done — solution + 6 BuildingBlocks libraries, 29 tests passing** |
-| Next | Stage 4 — the `tenant` service, first runnable vertical slice |
-| Services running | none yet — Stage 4 brings up the first one |
+| Stage | **4 done — the `tenant` service runs, 72 tests passing** |
+| Next | Stage 5 — `identity` + Kong: real tokens, and the header stub is deleted |
+| Services running | **1 of 14** — `tenant` |
 | Frontend | deliberately last (Stage 23) |
 | AI/ML | parked — [ADR-0007](docs/adr/0007-defer-ai-ml-keep-the-data.md) |
 
@@ -39,6 +39,7 @@ SaaS Platform
 | Where does my code go? | `docs/05-code-structure.md` |
 | Why is it built that way? | [`docs/adr/`](docs/adr/README.md) |
 | What did we learn the hard way? | `docs/learning/` |
+| What does the tenant service do? | `src/services/tenant/HotelSaas.Tenant.Api/tenant.http` |
 
 ## Architecture in one paragraph
 
@@ -63,10 +64,21 @@ Everything free for the whole learning phase.
 ## Running it
 
 ```powershell
-./infra/scripts/up.ps1               # start postgres + pgAdmin
-./infra/scripts/verify-isolation.ps1 # prove the service boundary holds
-./infra/scripts/down.ps1             # stop (add -Purge to delete data)
+./infra/scripts/up.ps1                       # postgres + pgAdmin only
+./infra/scripts/up.ps1 -Profile core -Build  # + the tenant service, containerised
+./infra/scripts/verify-isolation.ps1         # prove the service boundary holds
+./infra/scripts/down.ps1                     # stop (add -Purge to delete data)
 ```
+
+Or run the service from source against the containerised database:
+
+```powershell
+./infra/scripts/up.ps1
+dotnet run --project src/services/tenant/HotelSaas.Tenant.Api
+```
+
+Then work down `src/services/tenant/HotelSaas.Tenant.Api/tenant.http`, which
+walks the whole lifecycle and says what each response should be.
 
 `up.ps1` creates `infra/docker/.env` from `.env.example` on first run.
 Add `-Fresh` to wipe the volumes and re-run the database init scripts —
@@ -75,8 +87,9 @@ those scripts only execute on an empty volume.
 
 | | |
 |---|---|
+| tenant service | http://localhost:5101/health |
 | pgAdmin | http://localhost:5050 |
-| PostgreSQL | `localhost:5432`, user `postgres` |
+| PostgreSQL | `localhost:5433`, user `postgres` (5433 because a local postgres install usually owns 5432) |
 | Databases | 13 x `hs_<service>`, each with its own login role |
 
 `verify-isolation.ps1` is the one that matters: it checks each role can
@@ -88,7 +101,7 @@ identical until you try the connection that should fail.
 
 ```powershell
 dotnet build          # warnings are errors
-dotnet test           # 29 tests; the integration ones start their own postgres
+dotnet test           # 72 tests; the integration ones start their own postgres
 ```
 
 Integration tests use Testcontainers, so they need Docker running but not

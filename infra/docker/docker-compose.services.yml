@@ -1,0 +1,42 @@
+name: hotelsaas
+
+# Our own applications. Merged with docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.services.yml \
+#     --profile core up -d
+#
+# up.ps1 -Profile core does this for you.
+
+services:
+
+  tenant-api:
+    # Profiles are what make 14 services survivable on one laptop: stage 4
+    # starts two containers, not twenty.
+    profiles: ["core", "full"]
+    build:
+      # Repository root - the service needs Directory.*.props and the
+      # BuildingBlocks projects, which live above its own folder.
+      context: ../..
+      dockerfile: src/services/tenant/HotelSaas.Tenant.Api/Dockerfile
+    image: hs-tenant-api:local
+    container_name: hs-tenant-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${DOTNET_ENVIRONMENT:-Development}
+
+      # Host is "postgres" and the port is 5432: inside the compose network
+      # this talks to the container directly, so the 5433 host mapping (which
+      # exists only to dodge a locally installed postgres) is irrelevant here.
+      ConnectionStrings__TenantDb: >-
+        Host=postgres;Port=5432;Database=hs_tenant;Username=hs_tenant_user;Password=${HS_SERVICE_PASSWORD:?set HS_SERVICE_PASSWORD in infra/docker/.env};Maximum Pool Size=20
+    ports:
+      - "${TENANT_API_PORT:-5101}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [hotelsaas]
+
+networks:
+  hotelsaas:
+    name: hotelsaas
+    external: true

@@ -25,7 +25,9 @@ internal sealed class Widget : Entity, ITenantScoped
 internal sealed class TestDbContext(
     DbContextOptions<TestDbContext> options,
     ITenantContext tenantContext,
-    IClock clock) : HotelSaasDbContext(options, tenantContext, clock)
+    IClock clock,
+    ICorrelationContext correlationContext)
+    : HotelSaasDbContext(options, tenantContext, clock, correlationContext)
 {
     public DbSet<Widget> Widgets => Set<Widget>();
 

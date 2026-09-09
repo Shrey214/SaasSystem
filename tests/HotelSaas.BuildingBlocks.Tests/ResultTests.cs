@@ -1,4 +1,4 @@
-using HotelSaas.BuildingBlocks.Application;
+using HotelSaas.BuildingBlocks.Domain;
 
 namespace HotelSaas.BuildingBlocks.Tests;
 

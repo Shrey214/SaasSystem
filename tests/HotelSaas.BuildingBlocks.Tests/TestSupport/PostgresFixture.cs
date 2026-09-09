@@ -42,7 +42,8 @@ public sealed class PostgresFixture : IAsyncLifetime
         return new TestDbContext(
             options,
             tenantContext,
-            clock ?? new FixedClock(DateTimeOffset.UtcNow));
+            clock ?? new FixedClock(DateTimeOffset.UtcNow),
+            new FixedCorrelationContext());
     }
 }
 

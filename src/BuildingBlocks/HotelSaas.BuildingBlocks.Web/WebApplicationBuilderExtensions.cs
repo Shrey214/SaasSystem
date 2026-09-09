@@ -22,6 +22,7 @@ public static class WebServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.TryAddScoped<ITenantContext, HttpTenantContext>();
         services.TryAddScoped<ICurrentUser, HttpCurrentUser>();
+        services.TryAddScoped<ICorrelationContext, HttpCorrelationContext>();
 
         return services;
     }

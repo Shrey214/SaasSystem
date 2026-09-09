@@ -1,4 +1,4 @@
-using HotelSaas.BuildingBlocks.Application;
+using HotelSaas.BuildingBlocks.Domain;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 

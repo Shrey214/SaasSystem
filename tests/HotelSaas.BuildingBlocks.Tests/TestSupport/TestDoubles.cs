@@ -13,3 +13,8 @@ internal sealed class FixedClock(DateTimeOffset now) : IClock
 {
     public DateTimeOffset UtcNow { get; set; } = now;
 }
+
+internal sealed class FixedCorrelationContext(Guid? correlationId = null) : ICorrelationContext
+{
+    public Guid CorrelationId { get; } = correlationId ?? Domain.Uuid7.New();
+}

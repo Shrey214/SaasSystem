@@ -52,3 +52,27 @@ internal sealed class HttpCurrentUser(IHttpContextAccessor accessor) : ICurrentU
         }
     }
 }
+
+// Reads the correlation id set by CorrelationIdMiddleware.
+//
+// Falls back to a fresh id rather than throwing: a background job or a test
+// has no HttpContext, and an event with a new correlation id is far better
+// than a failed save.
+internal sealed class HttpCorrelationContext(IHttpContextAccessor accessor) : ICorrelationContext
+{
+    private Guid? _fallback;
+
+    public Guid CorrelationId
+    {
+        get
+        {
+            if (accessor.HttpContext is { } context
+                && CorrelationIdMiddleware.GetCorrelationId(context) is { } id)
+            {
+                return id;
+            }
+
+            return _fallback ??= Domain.Uuid7.New();
+        }
+    }
+}
