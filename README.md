@@ -39,7 +39,8 @@ SaaS Platform
 | Where does my code go? | `docs/05-code-structure.md` |
 | Why is it built that way? | [`docs/adr/`](docs/adr/README.md) |
 | What did we learn the hard way? | `docs/learning/` |
-| What does the tenant service do? | `src/services/tenant/HotelSaas.Tenant.Api/tenant.http` |
+| What does the tenant service do? | **`docs/06-tenant-service.txt`** — every table, column and flow |
+| I want to click through it | `src/services/tenant/HotelSaas.Tenant.Api/tenant.http` |
 
 ## Architecture in one paragraph
 

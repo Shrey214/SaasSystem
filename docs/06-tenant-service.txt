@@ -1,0 +1,1158 @@
+================================================================================
+TENANT SERVICE - COMPLETE REFERENCE
+================================================================================
+
+Stage 4 of Goal/Plan.txt. The first running service, and the template every
+later service is copied from.
+
+Schema below is dumped from the live hs_tenant database, not from memory.
+
+Contents
+  1.  What this service is for
+  2.  Where the code lives
+  3.  The 8 tables (full schema)
+  4.  Indexes and foreign keys
+  5.  FLOW 1 - business registration
+  6.  FLOW 2 - email verification / activation
+  7.  FLOW 3 - resend verification
+  8.  FLOW 4 - platform admin suspend / reactivate / archive
+  9.  FLOW 5 - profile read and update
+  10. FLOW 6 - an unhandled exception
+  11. The state machine
+  12. Every endpoint
+  13. Every error code
+  14. What is temporary
+  15. What connects to stage 5, 6, 7
+
+
+================================================================================
+1. WHAT THIS SERVICE IS FOR
+================================================================================
+
+A "tenant" is a BUSINESS - our paying customer. Per Goal/Saas.txt:
+
+    SaaS Platform
+       └── Business (TENANT)      "Porwal Hotels"  <- THIS SERVICE
+             └── Property         Hotel Ujjain, Hotel Indore, Hotel Bhopal
+                   └── Rooms, Bookings, Payments
+
+This service owns the TENANT ROOT. Its job:
+
+  - let a business owner sign up
+  - confirm they own the email address they typed
+  - let a platform admin suspend / reactivate / archive a business
+  - keep an audit trail of every status change
+  - tell the other 13 services when any of that happens (via events)
+
+THE MOST IMPORTANT PROPERTY OF THIS SERVICE
+
+    businesses.id  IS  the tenant_id that all 13 other services store.
+
+So the `businesses` table is the ONLY main table in the whole system with no
+tenant_id column and no tenant query filter. The row does not BELONG to a
+tenant - it DEFINES one. Business therefore deliberately does not implement
+ITenantScoped.
+
+
+================================================================================
+2. WHERE THE CODE LIVES
+================================================================================
+
+Four projects, "Full" tier per ADR-0009. Dependencies point INWARD only.
+
+src/services/tenant/
+│
+├── HotelSaas.Tenant.Domain/               <- business rules. ZERO packages.
+│   └── Businesses/
+│       ├── Business.cs                    the aggregate + state machine
+│       ├── BusinessProfile.cs             address / contact / branding
+│       ├── EmailVerification.cs           token entity + BusinessStatusChange
+│       ├── BusinessStatus.cs              the enum
+│       ├── BusinessEvents.cs              the 4 published events
+│       └── BusinessErrors.cs              stable error codes
+│
+├── HotelSaas.Tenant.Application/          <- use cases. Knows no EF, no HTTP.
+│   ├── Abstractions/Abstractions.cs       interfaces + query DTOs
+│   ├── Businesses/RegisterBusiness/
+│   ├── Businesses/VerifyEmail/
+│   ├── Businesses/ResendVerification/
+│   ├── Businesses/UpdateProfile/
+│   └── PlatformAdmin/                     suspend / activate / archive / search
+│
+├── HotelSaas.Tenant.Infrastructure/       <- the technology
+│   ├── Persistence/TenantDbContext.cs
+│   ├── Persistence/Configurations/        EF mapping (never attributes on entities)
+│   ├── Persistence/BusinessRepository.cs  loads/saves whole aggregates (commands)
+│   ├── Persistence/BusinessQueries.cs     projects to DTOs in SQL (queries)
+│   ├── Persistence/Migrations/            generated, never hand-edited
+│   ├── Security/VerificationTokenGenerator.cs
+│   └── InfrastructureServiceCollectionExtensions.cs   all DI wiring
+│
+└── HotelSaas.Tenant.Api/                  <- the entry point
+    ├── Program.cs                         middleware order + startup
+    ├── Endpoints/BusinessEndpoints.cs     public + /me
+    ├── Endpoints/PlatformEndpoints.cs     platform admin
+    ├── Endpoints/OperationalEndpoints.cs  health / ready / boom
+    ├── Dockerfile
+    └── tenant.http                        clickable smoke test
+
+WHY Domain has zero package references: a business rule then PHYSICALLY
+cannot call the database or read DateTime.Now. The compiler enforces the
+boundary that a folder only suggests.
+
+Tests:
+  tests/HotelSaas.Tenant.UnitTests/          18 tests, no database, 145ms
+  tests/HotelSaas.Tenant.IntegrationTests/   25 tests, real postgres + real HTTP
+
+
+================================================================================
+3. THE 8 TABLES
+================================================================================
+
+Four are this service's own domain. Four come from BuildingBlocks and are
+IDENTICAL in all 14 services.
+
+  OWN DOMAIN                    FROM BUILDINGBLOCKS
+  --------------------------    ---------------------------
+  businesses                    outbox_messages
+  business_profiles             idempotency_keys
+  business_status_history       processed_messages
+  email_verifications           error_logs
+
+
+--------------------------------------------------------------------------------
+3.1  businesses            THE AGGREGATE ROOT - this row IS a tenant
+--------------------------------------------------------------------------------
+
+COLUMN              TYPE           NULL?      WHY IT EXISTS
+------------------  -------------  ---------  ---------------------------------
+id                  uuid          NOT NULL   PK. uuid v7, generated in .NET
+                                             (ADR-0010), NOT by the database.
+                                             This value is the tenant_id every
+                                             other service stores.
+legal_name          varchar(200)  NOT NULL   "Porwal Hotels Pvt Ltd" - the
+                                             registered legal entity.
+display_name        varchar(200)  NOT NULL   "Porwal Hotels" - what a guest
+                                             sees. Defaults to legal_name if
+                                             not supplied.
+owner_email         varchar(320)  NOT NULL   The signup address. STORED
+                                             LOWERCASE (see note below).
+                                             320 = RFC max email length.
+owner_name          varchar(200)  NOT NULL   Who signed up.
+country             char(2)       NOT NULL   ISO 3166-1 alpha-2, uppercased.
+                                             char(2) not varchar: it is always
+                                             exactly 2.
+status              varchar(30)   NOT NULL   PendingVerification | Active |
+                                             Suspended | Archived.
+                                             TEXT, not int - readable in psql,
+                                             and adding a state later needs no
+                                             data migration.
+registered_at       timestamptz   NOT NULL   When they signed up.
+verified_at         timestamptz   NULL       When they clicked the email link.
+activated_at        timestamptz   NULL       FIRST activation only. A
+                                             reactivation does NOT overwrite
+                                             it - this is the date the customer
+                                             came on board.
+suspended_at        timestamptz   NULL       Cleared on reactivate.
+suspension_reason   varchar(500)  NULL       Cleared on reactivate. The current
+                                             reason; history keeps all of them.
+archived_at         timestamptz   NULL       Terminal.
+created_at          timestamptz   NOT NULL   Stamped automatically in
+                                             SaveChanges (BuildingBlocks).
+updated_at          timestamptz   NOT NULL   Stamped automatically. created_at
+                                             is explicitly protected from
+                                             being overwritten on update.
+version             integer       NOT NULL   Optimistic concurrency token.
+                                             Appears in the WHERE clause of
+                                             every UPDATE.
+
+NO tenant_id COLUMN. Deliberate - see section 1.
+
+WHY owner_email IS STORED LOWERCASE
+    Owner@x.com and owner@x.com are the same mailbox to every mail server, so
+    they must not become two businesses. PostgreSQL could enforce that with a
+    functional unique index on lower(owner_email), but EF's fluent API cannot
+    express one - it would mean raw SQL in a migration. Normalising on write
+    means a PLAIN unique index gives case-insensitive uniqueness. Cost: the
+    original casing is not preserved. Nobody has ever needed it.
+
+WHY THE TIMESTAMPS ARE SEPARATE COLUMNS AND NOT JUST status
+    "Which businesses activated last month" and "how long did verification
+    take" are questions a status column cannot answer at all.
+
+
+--------------------------------------------------------------------------------
+3.2  business_profiles       address, contact, branding        (1 : 1)
+--------------------------------------------------------------------------------
+
+COLUMN              TYPE           NULL?      WHY IT EXISTS
+------------------  -------------  ---------  ---------------------------------
+id                  uuid          NOT NULL   PK, uuid v7.
+business_id         uuid          NOT NULL   FK -> businesses.id, UNIQUE.
+legal_address       varchar(500)  NULL       All nullable: asking for a full
+city                varchar(120)  NULL       address before the owner has even
+state               varchar(120)  NULL       confirmed their email loses
+postal_code         varchar(20)   NULL       signups. A row is created EMPTY at
+contact_phone       varchar(30)   NULL       registration and filled in later.
+tax_identifier      varchar(50)   NULL       GSTIN etc.
+website_url         varchar(500)  NULL       Validated: absolute http/https
+                                             only. A javascript: URL rendered
+                                             on a property website later would
+                                             be stored XSS.
+logo_url            varchar(500)  NULL       Same validation.
+created_at          timestamptz   NOT NULL
+updated_at          timestamptz   NOT NULL
+
+WHY THIS IS A SEPARATE TABLE AND NOT 8 MORE COLUMNS ON businesses
+    The two change on completely different rhythms. Identity and status are
+    touched by registration and by admins - rare, audited, consequential. A
+    profile is edited casually and often. Splitting them keeps the aggregate
+    root narrow and means a profile edit never touches the row that other
+    services care about.
+
+    Empty string and null mean the same thing to a user, so Update() converts
+    whitespace to NULL. Two ways to say "not set" in a database is one too
+    many.
+
+
+--------------------------------------------------------------------------------
+3.3  business_status_history      APPEND-ONLY audit trail      (1 : many)
+--------------------------------------------------------------------------------
+
+COLUMN              TYPE           NULL?      WHY IT EXISTS
+------------------  -------------  ---------  ---------------------------------
+id                  uuid          NOT NULL   PK, uuid v7.
+business_id         uuid          NOT NULL   FK -> businesses.id
+from_status         varchar(30)   NULL       NULL on the FIRST row only -
+                                             there was no previous status.
+to_status           varchar(30)   NOT NULL   Where it went.
+reason              varchar(500)  NOT NULL   "registered", "email verified",
+                                             "non-payment for 60 days".
+                                             Required - this is the only
+                                             record of WHY a paying customer
+                                             was cut off.
+changed_by_user_id  uuid          NULL       NULL when the SYSTEM did it (the
+                                             owner verifying their own email).
+                                             Set when a platform admin did.
+created_at          timestamptz   NOT NULL   = when the change happened.
+updated_at          timestamptz   NOT NULL   Never changes - the table is
+                                             append-only. Present only because
+                                             every table has it.
+
+WHY THIS TABLE EXISTS AT ALL
+    Goal/Domain.txt Part 18 asks for who / what / when / old / new. A status
+    column answers "what is it NOW" and can never answer "who suspended this
+    customer, and why". Rows are never updated or deleted.
+
+
+--------------------------------------------------------------------------------
+3.4  email_verifications        single-use tokens              (1 : many)
+--------------------------------------------------------------------------------
+
+COLUMN              TYPE           NULL?      WHY IT EXISTS
+------------------  -------------  ---------  ---------------------------------
+id                  uuid          NOT NULL   PK, uuid v7.
+business_id         uuid          NOT NULL   FK -> businesses.id
+token_hash          varchar(64)   NOT NULL   SHA-256 hex of the token.
+                                             THE TOKEN ITSELF IS NEVER STORED.
+                                             UNIQUE.
+expires_at          timestamptz   NOT NULL   created_at + 24 hours.
+consumed_at         timestamptz   NULL       Set when used. Makes it single-use.
+invalidated_at      timestamptz   NULL       Set when a RESEND supersedes it.
+created_at          timestamptz   NOT NULL
+updated_at          timestamptz   NOT NULL
+
+WHY ONLY THE HASH
+    A database dump of plain tokens is a set of working account-takeover
+    links, and this is exactly the sort of table that ends up in a support
+    export. The incoming token is hashed and the HASH is compared.
+
+WHY SHA-256 AND NOT BCRYPT / ARGON2
+    Password hashers exist to slow down guessing a LOW-entropy secret. This
+    token is 32 bytes of CSPRNG output - 256 bits. Brute force is not the
+    threat, so there is nothing to slow down. What matters is that the stored
+    value cannot be turned back into a working link, and a fast hash does
+    that while keeping verification cheap.
+
+WHY ROWS ARE INVALIDATED RATHER THAN DELETED
+    "How many links did this person request" stays answerable, and an old
+    email forwarded to somebody else stops working the moment a new one is
+    requested.
+
+WHY THREE SEPARATE NULLABLE TIMESTAMPS instead of one status column
+    consumed / invalidated / expired are three different facts with three
+    different meanings, and expiry is derived from a date rather than stored.
+    Expiry is reported to the user SEPARATELY from "invalid", because the
+    token genuinely was theirs and they can fix it by asking for a new link.
+
+
+--------------------------------------------------------------------------------
+3.5  outbox_messages        events waiting to be published      (BuildingBlocks)
+--------------------------------------------------------------------------------
+
+COLUMN              TYPE           NULL?      WHY IT EXISTS
+------------------  -------------  ---------  ---------------------------------
+id                  bigint        NOT NULL   PK, IDENTITY - not uuid.
+                                             Never exposed, never referenced
+                                             from another service, highest
+                                             volume table in the system, and
+                                             the monotonic sequence gives
+                                             ordered draining with no
+                                             clock-skew ties (ADR-0010).
+message_id          uuid          NOT NULL   UNIQUE. The CONSUMER's idempotency
+                                             key - must be globally unique, so
+                                             it stays a uuid. Two columns, two
+                                             jobs.
+tenant_id           uuid          NULL       = business_id for this service.
+aggregate_type      varchar(200)  NOT NULL   "business"
+aggregate_id        uuid          NOT NULL   the business id
+event_type          varchar(200)  NOT NULL   "tenant.business.registered.v1"
+payload             jsonb         NOT NULL   The event body, camelCase.
+correlation_id      uuid          NOT NULL   Ties this to the originating HTTP
+                                             request, across all 14 services.
+causation_id        uuid          NULL       The message that caused this one.
+occurred_at         timestamptz   NOT NULL
+published_at        timestamptz   NULL       NULL = not yet sent to the broker.
+                                             ALL rows are NULL right now -
+                                             there is no RabbitMQ until stage 7.
+attempts            integer       NOT NULL   Retry counter.
+last_error          text          NULL       Why the last publish failed.
+
+WHY THIS TABLE EXISTS (ADR-0006)
+    A handler that writes a row and then publishes a message has two failure
+    modes and both happen:
+      - publish first, transaction rolls back -> we announced a business that
+        was never created
+      - write first, publish fails            -> nobody ever hears about a
+                                                 business that does exist
+    The event row is written in the SAME TRANSACTION as the business change,
+    so the two commit or fail together. A background publisher drains it
+    later (stage 7).
+
+    Consequence: the broker being down breaks NOTHING user-facing. Rows
+    accumulate, users keep registering, delivery catches up.
+
+
+--------------------------------------------------------------------------------
+3.6  idempotency_keys       remembered responses               (BuildingBlocks)
+--------------------------------------------------------------------------------
+
+COLUMN              TYPE           NULL?      WHY IT EXISTS
+------------------  -------------  ---------  ---------------------------------
+id                  bigint        NOT NULL   PK, identity.
+key                 varchar(200)  NOT NULL   The client's Idempotency-Key.
+tenant_id           uuid          NOT NULL   Guid.Empty = platform scope.
+                                             NOT nullable on purpose: a unique
+                                             index over a nullable column does
+                                             NOT deduplicate in postgres -
+                                             nulls are distinct from each
+                                             other, so two platform requests
+                                             with the same key would both get
+                                             through.
+endpoint            varchar(200)  NOT NULL   Same key on a different endpoint
+                                             is a different operation.
+request_hash        varchar(64)   NOT NULL   Same key + DIFFERENT body = client
+                                             bug -> 422. Guessing which request
+                                             they meant is how money moves
+                                             twice.
+response_status     integer       NULL       The remembered status code.
+response_body       jsonb         NULL       The remembered body, replayed
+                                             verbatim on a retry.
+created_at          timestamptz   NOT NULL   Row is inserted BEFORE the work
+                                             starts, so it doubles as a lock.
+completed_at        timestamptz   NULL       NULL = still in flight -> 409.
+
+    Table exists and is wired; the middleware that uses it lands with the
+    first endpoint that genuinely needs it (payments, stage 11).
+
+
+--------------------------------------------------------------------------------
+3.7  processed_messages     "we already handled this"          (BuildingBlocks)
+--------------------------------------------------------------------------------
+
+COLUMN         TYPE           NULL?      WHY IT EXISTS
+-------------  -------------  ---------  --------------------------------------
+message_id     uuid          NOT NULL   Composite PK part 1.
+consumer       varchar(200)  NOT NULL   Composite PK part 2. Keyed by consumer
+                                        too, because the SAME message is
+                                        legitimately processed by six different
+                                        services.
+processed_at   timestamptz   NOT NULL
+
+    COMPOSITE primary key, no surrogate id: the pair IS the identity, and the
+    primary key itself becomes the duplicate check. Insert it in the same
+    transaction as the side effect; a duplicate-key violation means "already
+    done" and the handler returns quietly.
+
+    Empty until this service consumes its first event (stage 7+).
+
+
+--------------------------------------------------------------------------------
+3.8  error_logs             every unhandled fault              (BuildingBlocks)
+--------------------------------------------------------------------------------
+
+Full detail in ADR-0008. The columns that matter most:
+
+COLUMN              TYPE           WHY IT EXISTS
+------------------  -------------  ------------------------------------------
+id                  bigint        PK, identity.
+error_id            uuid          Shown to the user in the 500 response, so
+                                  support can find the row from a screenshot.
+correlation_id      uuid          Join the same request across all 14 services.
+tenant_id           uuid          Powers "show me THIS customer's errors" -
+                                  Goal/Saas.txt lists Support and System
+                                  Monitoring as platform-admin features, so
+                                  this is a PRODUCT feature, not just plumbing.
+source_kind         varchar(20)   http | consumer | job. Most failures in an
+                                  event-driven system happen outside an HTTP
+                                  request; without this they are invisible.
+exception_type      varchar(500)
+message             text
+stack_trace         text
+inner_exceptions    jsonb         The full chain - the outermost message is
+                                  often a generic wrapper.
+fault_assembly      varchar(200)  \
+fault_type          varchar(500)   |  WHERE IT BROKE IN *OUR* CODE.
+fault_method        varchar(200)   |  The top stack frame is nearly always
+fault_file          varchar(1000)  |  framework internals (Npgsql...), which
+fault_line          integer       /   is true and useless. So the stack is
+                                  walked for the first HotelSaas.* frame.
+                                  Verified working: /boom records
+                                  fault_line = 60.
+request_headers     jsonb         REDACTED against an allowlist. Headers
+                                  routinely carry tokens and cookies.
+fingerprint         varchar(32)   Hash of exception type + fault location.
+                                  One bug that fired 4,000 times is ONE row
+                                  to read, not 4,000. Excludes the message,
+                                  which usually contains ids.
+
+    Four rules the writer obeys, each a real bug avoided:
+      1. its OWN database connection - never the failed request's DbContext,
+         which may hold a rolled-back transaction (a 500 inside a 500)
+      2. never throws - falls back to stdout
+      3. never blocks the response - bounded Channel + background writer.
+         A sick database is often WHY we are here.
+      4. never logs expected outcomes - a 409 from a lost race is the system
+         working correctly. Logging it would bury the real faults.
+
+
+================================================================================
+4. INDEXES AND FOREIGN KEYS
+================================================================================
+
+PRIMARY KEYS
+    pk_businesses                        (id)
+    pk_business_profiles                 (id)
+    pk_business_status_history           (id)
+    pk_email_verifications               (id)
+    pk_outbox_messages                   (id)
+    pk_idempotency_keys                  (id)
+    pk_processed_messages                (message_id, consumer)   <- composite
+    pk_error_logs                        (id)
+
+UNIQUE INDEXES
+    ux_businesses_owner_email            (owner_email)
+        ** THE uniqueness guard. See section 5, step 6. **
+    ux_business_profiles_business_id      (business_id)      enforces 1:1
+    ux_email_verifications_token_hash     (token_hash)
+        Two businesses sharing a hash would let one link verify the wrong
+        account.
+    ux_outbox_messages_message_id         (message_id)
+    ux_idempotency_keys_tenant_endpoint_key  (tenant_id, endpoint, key)
+        This uniqueness IS the lock.
+
+PERFORMANCE INDEXES
+    ix_businesses_status                 (status)
+        Platform admin filtering by status.
+    ix_businesses_registered_at          (registered_at DESC)
+        Newest-first admin lists.
+    ix_business_status_history_business_created  (business_id, created_at DESC)
+        Exactly how the audit trail is read.
+    ix_email_verifications_business_id   (business_id)
+    ix_outbox_messages_unpublished       (occurred_at) WHERE published_at IS NULL
+        PARTIAL index. The publisher only ever reads unpublished rows, and
+        this table is 99% published rows. A full index would grow forever and
+        be almost entirely dead weight.
+    ix_error_logs_occurred_at            (occurred_at DESC)
+    ix_error_logs_correlation_id         (correlation_id)
+    ix_error_logs_tenant_occurred        (tenant_id, occurred_at)
+    ix_error_logs_fingerprint            (fingerprint, occurred_at)
+
+FOREIGN KEYS  (all INSIDE this service - never across services)
+    business_profiles.business_id        -> businesses.id   ON DELETE CASCADE
+    business_status_history.business_id  -> businesses.id   ON DELETE CASCADE
+    email_verifications.business_id      -> businesses.id   ON DELETE CASCADE
+
+    CASCADE is safe here only because a business is NEVER deleted - ARCHIVED
+    is terminal (Goal/Domain.txt Part 1 requires historical bookings to stay
+    intact, and they live in another database with no FK to protect them).
+    The cascade exists for test cleanup and for a genuine mistake caught in
+    the same minute.
+
+    Local FKs are used AGGRESSIVELY. Local integrity is free; there is no
+    reason to give it up just because global integrity is unavailable.
+
+
+================================================================================
+5. FLOW 1 - BUSINESS REGISTRATION
+================================================================================
+
+    POST /api/v1/businesses
+    {
+      "legalName":  "Porwal Hotels Pvt Ltd",
+      "displayName":"Porwal Hotels",
+      "ownerEmail": "Owner@PorwalHotels.dev",
+      "ownerName":  "Shreyash Porwal",
+      "country":    "in"
+    }
+
+STEP BY STEP
+
+ 1. CorrelationIdMiddleware
+        Mints a correlation_id (or reuses an X-Correlation-Id header) and puts
+        it on the response. Registered FIRST so anything that fails below
+        already has an id to log against.
+
+ 2. ExceptionHandlingMiddleware
+        Wraps everything after it. Registered SECOND so it also catches auth
+        failures.
+
+ 3. TenantContextMiddleware
+        Resolves no tenant - this endpoint is public. Correct: there is no
+        tenant yet, the request is CREATING one.
+
+ 4. RegisterBusinessValidator  (FluentValidation)
+        legalName    not empty, <= 200
+        ownerEmail   not empty, valid email, <= 320
+        ownerName    not empty, <= 200
+        country      exactly 2 characters
+        Failure -> 400 with a per-field map in camelCase, so the frontend can
+        attach each message to the input that caused it.
+
+ 5. RegisterBusinessHandler:  EmailExistsAsync
+        SELECT EXISTS (SELECT 1 FROM businesses WHERE owner_email = @email)
+        A COURTESY, NOT THE GUARD. Two simultaneous requests both pass it.
+
+ 6. Business.Register(...)   -- all in memory, no database yet
+        - id = Uuid7.New()               generated in .NET, not by postgres
+        - email  -> trimmed + LOWERCASED
+        - country -> trimmed + UPPERCASED
+        - display_name defaults to legal_name if blank
+        - status = PendingVerification
+        - Profile = BusinessProfile.Empty(id)
+        - status history row: NULL -> PendingVerification, "registered"
+        - RAISES BusinessRegistered
+
+        ** This is only possible because the id was generated in code. With a
+           database identity column the aggregate would not know its own id
+           until after SaveChanges, and the event could not carry it. **
+
+ 7. VerificationTokenGenerator.Generate()
+        32 bytes from RandomNumberGenerator (never Random, never Guid - a
+        predictable token is an account takeover), base64url encoded.
+        Returns (token, sha256hash).
+
+ 8. business.IssueEmailVerification(hash, now)
+        Invalidates any earlier usable token, then adds a new row with
+        expires_at = now + 24h.
+
+ 9. unitOfWork.SaveChangesAsync()   -- ONE TRANSACTION
+        BuildingBlocks does three things automatically here:
+          a) StampTenant           - Business is not ITenantScoped, so skipped
+          b) StampAuditTimestamps  - created_at / updated_at on every row
+          c) DrainDomainEventsToOutbox - copies BusinessRegistered into
+                                         outbox_messages
+
+        FIVE INSERTS, ONE COMMIT:
+          INSERT businesses               (status = PendingVerification)
+          INSERT business_profiles        (empty shell)
+          INSERT business_status_history  (NULL -> PendingVerification)
+          INSERT email_verifications      (the HASH, + 24h expiry)
+          INSERT outbox_messages          (tenant.business.registered.v1)
+
+        All of it, or none of it.
+
+10. If the unique index rejects it:  SqlState 23505
+        Caught, logged, and returned as the SAME 409 the check in step 5 would
+        have produced. THIS is the real uniqueness guard - the only atomic
+        one. A test fires 8 parallel registrations and asserts exactly
+        1 created, 7 conflicted, one row in the table.
+
+11. VerificationDispatcher.DispatchAsync(...)
+        Stage 4: logs the token in Development. Stage 16 sends a real email.
+        Nothing above it changes when that happens - that is why the use case
+        depends on an interface and not on an email client.
+
+12. RESPONSE  201 Created
+        Location: /api/v1/businesses/{id}
+        {
+          "businessId": "01a08452-e3ee-7880-97d9-cf79e2d34a8b",
+          "status": "PendingVerification",
+          "verificationToken": "TP-JrI2iZ34..."   <- DEVELOPMENT ONLY
+        }
+
+DATABASE AFTERWARDS
+
+    businesses
+      status               = PendingVerification
+      owner_email          = owner@porwalhotels.dev     (lowercased)
+      country              = IN                          (uppercased)
+      registered_at        = now
+      verified_at          = NULL
+      activated_at         = NULL
+
+    business_profiles       one empty row
+    business_status_history NULL -> PendingVerification  ("registered")
+    email_verifications     token_hash (64 chars), expires_at = +24h,
+                            consumed_at = NULL, invalidated_at = NULL
+    outbox_messages         tenant.business.registered.v1, published_at = NULL
+
+
+================================================================================
+6. FLOW 2 - EMAIL VERIFICATION / ACTIVATION
+================================================================================
+
+    POST /api/v1/businesses/{id}/verify-email
+    { "token": "TP-JrI2iZ34..." }
+
+    The token is in the BODY, never the query string: query strings end up in
+    access logs, browser history and Referer headers.
+
+STEP BY STEP
+
+ 1. BusinessRepository.GetByIdAsync
+        Loads the aggregate WHOLE - profile + status history + every
+        verification token - using AsSplitQuery().
+
+        WHY WHOLE: VerifyEmail cannot check a token it was not given, and
+        Suspend cannot append to a history it cannot see. Loading part of an
+        aggregate and calling a method on it is how invariants get silently
+        skipped.
+
+        WHY AsSplitQuery: two collection Includes in one statement is a
+        cartesian product - 20 history rows x 5 tokens returns 100 rows to
+        build 25 objects. EF warned about it; three round trips beats a result
+        set that grows by multiplication.
+
+        Not found -> 404. Never 403, which would confirm the business exists.
+
+ 2. tokens.Hash(incoming)
+        The incoming token is hashed and the HASH is compared. The plain token
+        was never stored, so there is nothing else to compare against.
+
+ 3. business.VerifyEmail(hash, now)   -- INSIDE the aggregate
+        - Archived?                    -> invalid_status_transition
+        - not PendingVerification?     -> already_verified
+        - no matching usable token?    -> verification_token_invalid
+        - matching but expired?        -> verification_token_expired
+                                          (reported SEPARATELY: the token WAS
+                                          theirs and they can fix it)
+        - otherwise:
+            token.consumed_at = now
+            verified_at       = now
+            status            = Active
+            activated_at      = now      (first activation only)
+            history row: PendingVerification -> Active, "email verified"
+            RAISES BusinessActivated
+
+        ** THERE IS NO APPROVAL STEP. Verifying the email activates the
+           business. Goal/Domain.txt Part 1 lists "Business Activation |
+           Platform Admin", but its BUSINESS RULE column says "suspended
+           businesses cannot use platform" - so that row is about
+           UN-SUSPENDING, not vetting new signups. **
+
+ 4. SaveChangesAsync()   -- ONE TRANSACTION
+          UPDATE businesses           (status, verified_at, activated_at,
+                                       updated_at) WHERE id = @id AND version = @v
+          UPDATE email_verifications  (consumed_at, updated_at)
+          INSERT business_status_history
+          INSERT outbox_messages      (tenant.business.activated.v1)
+
+ 5. RESPONSE  200 OK
+        { "businessId": "...", "status": "Active" }
+
+        The business can now log in and add properties. Stage 6 will start a
+        trial subscription off the event.
+
+** THE BUG THIS FLOW EXPOSED **
+
+    This returned 500 the first time:
+        "expected to affect 1 row(s), but actually affected 0 row(s)"
+
+    version was 0 in the row AND 0 in the WHERE clause, so concurrency was
+    not the problem. EF command logging showed:
+
+        UPDATE business_status_history SET ... WHERE id = @p6;
+
+    An UPDATE for a BRAND-NEW row. EF conventionally treats a Guid key as
+    ValueGeneratedOnAdd, so when it finds an UNTRACKED child on a TRACKED
+    aggregate it decides Added-vs-Modified by asking whether the key is
+    already set - and ours always is, because uuid v7 is minted in the
+    constructor.
+
+    Registration never hit it: the whole graph went through Add(), so
+    everything became Added. It only fires the FIRST TIME A CHILD IS ADDED TO
+    AN ALREADY-LOADED AGGREGATE - the second use case, not the first.
+
+    Fixed once in BuildingBlocks for all 14 services: Entity.Id is declared
+    ValueGenerated.Never, which is the honest configuration anyway.
+
+
+================================================================================
+7. FLOW 3 - RESEND VERIFICATION
+================================================================================
+
+    POST /api/v1/businesses/resend-verification
+    { "ownerEmail": "owner@porwalhotels.dev" }
+
+    Keyed by EMAIL, not by business id, because the person clicking "resend"
+    has lost the email that contained their id.
+
+ 1. GetByEmailAsync (email normalised the same way as on write)
+ 2. Not found, OR already past PendingVerification?
+        -> return 202 anyway, saying nothing about which
+ 3. Otherwise: issue a new token, which INVALIDATES every earlier usable one
+        UPDATE email_verifications SET invalidated_at = now   (the old rows)
+        INSERT email_verifications                            (the new token)
+ 4. RESPONSE  202 Accepted, always
+
+WHY ALWAYS 202 WHEN REGISTRATION RETURNS 409
+    Registration returning 409 was a deliberate choice - it leaks that an
+    address is registered, but the UX cost of hiding it is high and for B2B
+    the enumeration risk is low.
+
+    This endpoint is different: there is no registration attempt behind it, so
+    a distinguishable response would be a free address-checking oracle -
+    unlimited guesses, no audit trail, no rate-limit trigger.
+
+
+================================================================================
+8. FLOW 4 - PLATFORM ADMIN
+================================================================================
+
+These take a business id in the ROUTE, unlike the /me endpoints, because a
+platform admin legitimately acts on OTHER tenants. That is the audited
+cross-tenant path from ADR-0004 - a separate route prefix and separate
+handlers, never a flag on the normal ones.
+
+SUSPEND    POST /api/v1/platform/businesses/{id}/suspend
+           { "reason": "non-payment for 60 days" }
+
+    reason: required, 5..500 chars. It ends up in business_status_history and
+    is the ONLY record of why a paying customer was cut off.
+
+    Only from Active. Two admins both clicking suspend is ORDINARY, so a
+    repeat is a 409 refusal, not an exception.
+
+        UPDATE businesses           (status = Suspended, suspended_at,
+                                     suspension_reason)
+        INSERT business_status_history  (Active -> Suspended, the reason,
+                                         changed_by_user_id)
+        INSERT outbox_messages      (tenant.business.suspended.v1)
+    -> 204
+
+ACTIVATE   POST /api/v1/platform/businesses/{id}/activate
+
+    ONLY from Suspended. This is UN-suspending - it is not a shortcut past
+    email verification, and calling it on a PendingVerification business is a
+    409.
+
+        UPDATE businesses           (status = Active, suspended_at = NULL,
+                                     suspension_reason = NULL)
+                                     ** activated_at is NOT overwritten **
+        INSERT business_status_history  (Suspended -> Active)
+        INSERT outbox_messages      (tenant.business.activated.v1)
+    -> 204
+
+ARCHIVE    POST /api/v1/platform/businesses/{id}/archive
+
+    Terminal. Nothing comes back from Archived.
+    NEVER a delete: bookings in another database reference this tenant id
+    with no foreign key to protect them.
+    -> 204
+
+SEARCH     GET /api/v1/platform/businesses?q=&status=&cursor=&limit=
+
+    - ILike, not ToLower().Contains() - maps to postgres ILIKE instead of
+      wrapping the column in a function on every row
+    - CURSOR pagination on the primary key. Because the id is uuid v7,
+      ordering by it IS ordering by creation time - no second sort column,
+      and no offset to drift under concurrent inserts
+    - fetches limit+1 rows to learn whether another page exists, instead of a
+      second COUNT over the whole table
+    - the cursor is base64 and opaque: a position, not an API. A malformed
+      cursor returns page 1 rather than a 400 - a stale bookmark is not an
+      error
+    - limit is CLAMPED to 1..100, not validated. A client asking for 10,000
+      gets 100. A page size is not a business rule
+    - an unknown status returns 400 NAMING the valid values, because the
+      caller cannot guess an enum they have never seen
+
+
+================================================================================
+9. FLOW 5 - PROFILE READ AND UPDATE
+================================================================================
+
+    GET /api/v1/businesses/me
+    GET /api/v1/businesses/me/profile
+    PUT /api/v1/businesses/me/profile
+    GET /api/v1/businesses/me/status-history
+
+** /me, NOT /{id} - deliberately. **
+
+    The business id IS the tenant_id, and that already comes from the token.
+    Accepting it in the URL as well would create a parameter an attacker can
+    change - the IDOR risk ADR-0004 names. With /me there is simply nothing
+    to tamper with. UpdateProfileCommand has no BusinessId field at all.
+
+READS go straight from the DbContext to a DTO, projected in SQL - they do NOT
+load the aggregate (docs/05-code-structure.md 2.5). Rendering four fields
+does not need a Business with its full history and every token it was ever
+issued. The domain model exists to protect CHANGES.
+
+WRITES load the aggregate and call a method on it.
+
+    PUT converts whitespace to NULL, and validates website_url / logo_url as
+    absolute http/https only. A javascript: URL rendered on a property
+    website later would be stored XSS, and the cheapest place to refuse it is
+    on the way in.
+    -> 204
+
+
+================================================================================
+10. FLOW 6 - AN UNHANDLED EXCEPTION
+================================================================================
+
+    GET /boom      (Development only)
+
+ 1. ExceptionHandlingMiddleware catches it. Anything reaching here is a bug
+    or an outage - an EXPECTED failure would have travelled as a Result.
+
+ 2. errorId = Uuid7.New()
+
+ 3. STDOUT FIRST, unconditionally. This is the authoritative record and it
+    works even when the database is the problem.
+
+ 4. FaultLocator.Locate(exception)
+        Walks the stack for the first HotelSaas.* frame. The top frame is
+        nearly always framework internals, which is true and useless.
+        Verified: fault_assembly = HotelSaas.Tenant.Api,
+                  fault_method  = <MapOperationalEndpoints>b__0_2,
+                  fault_line    = 60
+
+ 5. errorLogWriter.Enqueue(entry)
+        Into a BOUNDED channel. Never throws, never blocks. A background
+        writer batches the inserts on its OWN Npgsql connection - never the
+        failed request's DbContext, which may hold a rolled-back transaction
+        (writing through it throws again: a 500 inside a 500, original error
+        lost).
+
+ 6. RESPONSE  500 application/problem+json
+        {
+          "type": "https://hotelsaas.dev/errors/internal",
+          "title": "An unexpected error occurred.",
+          "status": 500,
+          "detail": "The request could not be completed. Quote the error id
+                     if you contact support.",
+          "code": "internal_error",
+          "errorId": "01a0845a-54ab-...",
+          "correlationId": "01a0845a-...",
+          "traceId": "00-..."
+        }
+
+        No internals. In DEVELOPMENT ONLY the exception type, message and
+        stack trace are added, so the flow can be debugged without opening
+        the database.
+
+
+================================================================================
+11. THE STATE MACHINE
+================================================================================
+
+    POST /businesses
+          │
+          ▼
+    PendingVerification ─────── token expires ──► (stays; resend works)
+          │
+          │  verify-email  (self-service, no human)
+          ▼
+       ACTIVE ◄────────── activate ────────── SUSPENDED
+          │                                       │
+          └──────── suspend ──────────────────────┘
+          │
+          └──────── archive ────────► ARCHIVED  (terminal)
+
+  FROM                  TO         WHO            ALLOWED?
+  --------------------  ---------  -------------  ---------------------------
+  (none)                Pending    public         always
+  PendingVerification   Active     the owner      with a valid token
+  PendingVerification   Suspended  admin          NO - 409
+  Active                Suspended  admin          yes, reason required
+  Active                Active     admin          NO - 409
+  Suspended             Active     admin          yes
+  Suspended             Suspended  admin          NO - 409
+  any except Archived   Archived   admin          yes
+  Archived              anything   anyone         NO - 409, terminal
+
+Illegal transitions return 409, NOT an exception. Two admins both clicking
+suspend is a normal thing for humans to do.
+
+Every transition appends one business_status_history row and one
+outbox_messages row.
+
+
+================================================================================
+12. EVERY ENDPOINT
+================================================================================
+
+PUBLIC (no auth - the only endpoints a stranger can reach)
+  POST /api/v1/businesses                        201 register
+  POST /api/v1/businesses/{id}/verify-email      200 verify + activate
+  POST /api/v1/businesses/resend-verification    202 always
+
+THE CALLER'S OWN BUSINESS
+  GET  /api/v1/businesses/me                     200
+  GET  /api/v1/businesses/me/profile             200
+  PUT  /api/v1/businesses/me/profile             204
+  GET  /api/v1/businesses/me/status-history      200 cursor-paginated
+
+PLATFORM ADMIN
+  GET  /api/v1/platform/businesses               200 search
+  GET  /api/v1/platform/businesses/{id}          200
+  POST /api/v1/platform/businesses/{id}/suspend  204
+  POST /api/v1/platform/businesses/{id}/activate 204
+  POST /api/v1/platform/businesses/{id}/archive  204
+
+OPERATIONS
+  GET  /health                                   200 liveness, touches nothing
+  GET  /health/ready                             200/503 readiness
+  GET  /boom                                     500 Development only
+
+** THE NOTABLE ABSENCE: no service-to-service endpoints. Zero synchronous
+   callers. subscription, identity and reporting all learn about businesses
+   from EVENTS, never by calling here - which is why this service being down
+   does not stop bookings. **
+
+
+================================================================================
+13. EVERY ERROR CODE
+================================================================================
+
+  CODE                                   HTTP   MEANING
+  -------------------------------------  -----  ------------------------------
+  validation_failed                       400   shape is wrong; per-field map
+  tenant.suspension_reason_required       400   suspend without a real reason
+  tenant.unknown_status                   400   bad status filter
+  tenant.business_not_found               404   absent. NEVER 403 - that would
+                                                confirm it exists
+  tenant.email_already_registered         409   duplicate signup
+  tenant.verification_token_invalid       409   wrong / used / superseded
+  tenant.verification_token_expired       409   was valid; ask for a new link
+  tenant.already_verified                 409   verified twice
+  tenant.invalid_status_transition        409   illegal state change
+  internal_error                          500   a bug; quote errorId
+
+All returned as RFC 9457 application/problem+json with code, errorId and
+correlationId. Codes are STABLE - the frontend switches on them and
+translates them, so they do not change once shipped.
+
+
+================================================================================
+14. WHAT IS TEMPORARY
+================================================================================
+
+X-Tenant-Id HEADER
+    There is no authentication until stage 5, so the tenant comes from a
+    header, which is trivially forged. Enabled ONLY in Development - a
+    deployed instance gets NO tenant rather than a fake one, so it cannot
+    quietly survive. Stage 5 deletes the option and the branch behind it; the
+    claims path is already written and tried first, so that change REMOVES
+    code rather than altering behaviour.
+
+VERIFICATION EMAIL
+    Not sent. The token is logged and returned in the response in Development.
+    Stage 16 (notification) replaces the IVerificationDispatcher
+    implementation and nothing above it changes.
+
+MIGRATIONS AT STARTUP
+    Development only. Never in production: two instances starting together
+    would both try to migrate. Stage 24 runs migrations as a separate deploy
+    step.
+
+EVENTS GO NOWHERE
+    All outbox rows are unpublished. There is no RabbitMQ until stage 7. That
+    is ADR-0006 working, not a gap - and by stage 7 there will be three
+    stages of backlog to drain, which is a better test of the publisher than
+    anything synthetic.
+
+NO AUTHORIZATION ON /platform
+    The routes are separated from day one so stage 5 adds an attribute rather
+    than re-routing anything.
+
+
+================================================================================
+15. WHAT CONNECTS TO STAGE 5, 6, 7
+================================================================================
+
+STAGE 5  identity
+    Issues RS256 tokens carrying tenant_id. The X-Tenant-Id stub is deleted.
+    /platform gets a real authorization policy, and changed_by_user_id in
+    business_status_history starts being populated with a real admin id
+    instead of NULL.
+
+STAGE 6  subscription
+    Consumes tenant.business.registered.v1 and creates a trial subscription.
+    This is why the event carries legalName and country rather than just an
+    id - so subscription never has to call back.
+
+STAGE 7  RabbitMQ
+    A background publisher drains outbox_messages. Every row written since
+    stage 4 goes out, in order, and published_at finally gets set.
+
+STAGE 8+ property
+    Calls subscription to ask "may this business create another property?"
+    using the tenant_id that originated here.
+
+
+================================================================================
+APPENDIX - RAW SCHEMA, EXACTLY AS IT EXISTS IN hs_tenant
+================================================================================
+
+Dumped from the live database. Reproduce with:
+
+  docker exec hs-postgres psql -U postgres -d hs_tenant -c "\d+ businesses"
+
+Column names are snake_case because the EFCore.NamingConventions
+package derives them from the C# property names - no service writes
+200 lines of HasColumnName.
+
+--------------------------------------------------------------------------------
+businesses   (16 columns)
+--------------------------------------------------------------------------------
+  id                   uuid             NOT NULL
+  legal_name           varchar(200)     NOT NULL
+  display_name         varchar(200)     NOT NULL
+  owner_email          varchar(320)     NOT NULL
+  owner_name           varchar(200)     NOT NULL
+  country              char(2)          NOT NULL
+  status               varchar(30)      NOT NULL
+  registered_at        timestamptz      NOT NULL
+  verified_at          timestamptz
+  activated_at         timestamptz
+  suspended_at         timestamptz
+  suspension_reason    varchar(500)
+  archived_at          timestamptz
+  created_at           timestamptz      NOT NULL
+  updated_at           timestamptz      NOT NULL
+  version              integer          NOT NULL
+
+--------------------------------------------------------------------------------
+business_profiles   (12 columns)
+--------------------------------------------------------------------------------
+  id                   uuid             NOT NULL
+  business_id          uuid             NOT NULL
+  legal_address        varchar(500)
+  city                 varchar(120)
+  state                varchar(120)
+  postal_code          varchar(20)
+  contact_phone        varchar(30)
+  tax_identifier       varchar(50)
+  website_url          varchar(500)
+  logo_url             varchar(500)
+  created_at           timestamptz      NOT NULL
+  updated_at           timestamptz      NOT NULL
+
+--------------------------------------------------------------------------------
+business_status_history   (8 columns)
+--------------------------------------------------------------------------------
+  id                   uuid             NOT NULL
+  business_id          uuid             NOT NULL
+  from_status          varchar(30)
+  to_status            varchar(30)      NOT NULL
+  reason               varchar(500)     NOT NULL
+  changed_by_user_id   uuid
+  created_at           timestamptz      NOT NULL
+  updated_at           timestamptz      NOT NULL
+
+--------------------------------------------------------------------------------
+email_verifications   (8 columns)
+--------------------------------------------------------------------------------
+  id                   uuid             NOT NULL
+  business_id          uuid             NOT NULL
+  token_hash           varchar(64)      NOT NULL
+  expires_at           timestamptz      NOT NULL
+  consumed_at          timestamptz
+  invalidated_at       timestamptz
+  created_at           timestamptz      NOT NULL
+  updated_at           timestamptz      NOT NULL
+
+--------------------------------------------------------------------------------
+outbox_messages   (13 columns)
+--------------------------------------------------------------------------------
+  id                   bigint           NOT NULL
+  message_id           uuid             NOT NULL
+  tenant_id            uuid
+  aggregate_type       varchar(200)     NOT NULL
+  aggregate_id         uuid             NOT NULL
+  event_type           varchar(200)     NOT NULL
+  payload              jsonb            NOT NULL
+  correlation_id       uuid             NOT NULL
+  causation_id         uuid
+  occurred_at          timestamptz      NOT NULL
+  published_at         timestamptz
+  attempts             integer          NOT NULL
+  last_error           text
+
+--------------------------------------------------------------------------------
+idempotency_keys   (9 columns)
+--------------------------------------------------------------------------------
+  id                   bigint           NOT NULL
+  key                  varchar(200)     NOT NULL
+  tenant_id            uuid             NOT NULL
+  endpoint             varchar(200)     NOT NULL
+  request_hash         varchar(64)      NOT NULL
+  response_status      integer
+  response_body        jsonb
+  created_at           timestamptz      NOT NULL
+  completed_at         timestamptz
+
+--------------------------------------------------------------------------------
+processed_messages   (3 columns)
+--------------------------------------------------------------------------------
+  message_id           uuid             NOT NULL
+  consumer             varchar(200)     NOT NULL
+  processed_at         timestamptz      NOT NULL
+
+--------------------------------------------------------------------------------
+error_logs   (29 columns)
+--------------------------------------------------------------------------------
+  id                   bigint           NOT NULL
+  error_id             uuid             NOT NULL
+  occurred_at          timestamptz      NOT NULL
+  service_name         varchar(100)     NOT NULL
+  environment          varchar(50)      NOT NULL
+  machine_name         varchar(200)     NOT NULL
+  version              varchar(50)
+  correlation_id       uuid
+  causation_id         uuid
+  tenant_id            uuid
+  user_id              uuid
+  source_kind          varchar(20)      NOT NULL
+  http_method          varchar(10)
+  path                 varchar(2000)
+  query_string         varchar(4000)
+  status_code          integer
+  duration_ms          integer
+  message_type         varchar(200)
+  exception_type       varchar(500)     NOT NULL
+  message              text             NOT NULL
+  stack_trace          text
+  inner_exceptions     jsonb
+  fault_assembly       varchar(200)
+  fault_type           varchar(500)
+  fault_method         varchar(200)
+  fault_file           varchar(1000)
+  fault_line           integer
+  request_headers      jsonb
+  fingerprint          varchar(32)      NOT NULL
+
