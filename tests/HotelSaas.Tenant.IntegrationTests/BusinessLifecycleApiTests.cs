@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using HotelSaas.Tenant.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -181,6 +182,34 @@ public sealed class BusinessLifecycleApiTests(TenantApiFactory factory)
         // The caller cannot guess an enum they have never seen.
         string body = await response.Content.ReadAsStringAsync();
         body.ShouldContain("PendingVerification");
+    }
+
+    [Fact]
+    public async Task MalformedJson_Returns400_Not500()
+    {
+        // A caller's typo is not our fault. Treating it as 500 tells them to
+        // contact support about their own mistake AND fills error_logs with
+        // other people's bad requests, burying the real faults.
+        using HttpClient client = factory.NewClient();
+
+        using StringContent body = new("{ this is not json", Encoding.UTF8, "application/json");
+        HttpResponseMessage response = await client.PostAsync("/api/v1/businesses", body);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await BusinessRegistrationTests.ReadCodeAsync(response)).ShouldBe("malformed_request");
+    }
+
+    [Fact]
+    public async Task AnUnparseableRouteValue_Returns404_Not500()
+    {
+        // {id:guid} does not match, so there is simply no such route.
+        using HttpClient client = factory.NewClient();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            "/api/v1/businesses/not-a-guid/verify-email",
+            new { token = "x" });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]

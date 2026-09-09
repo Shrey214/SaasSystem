@@ -1,6 +1,5 @@
 using HotelSaas.BuildingBlocks.Observability;
 using HotelSaas.BuildingBlocks.Web;
-using HotelSaas.Tenant.Api.Endpoints;
 using HotelSaas.Tenant.Infrastructure;
 using HotelSaas.Tenant.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -26,6 +25,11 @@ builder.Services.AddHotelSaasWeb(tenant =>
     tenant.AllowHeaderFallback = builder.Environment.IsDevelopment();
 });
 
+// Controllers, with the global FluentValidation filter and - importantly -
+// [ApiController]'s own error shapes suppressed, so every problem response
+// in all 14 services comes from ProblemDetailsFactory.
+builder.Services.AddHotelSaasControllers();
+
 builder.Services.AddOpenApi();
 
 WebApplication app = builder.Build();
@@ -35,9 +39,7 @@ WebApplication app = builder.Build();
 app.UseHotelSaasPipeline(useAuthentication: false);
 app.UseHotelSaasRequestLogging();
 
-app.MapBusinessEndpoints();
-app.MapPlatformEndpoints();
-app.MapOperationalEndpoints();
+app.MapControllers();
 
 if (app.Environment.IsDevelopment())
 {

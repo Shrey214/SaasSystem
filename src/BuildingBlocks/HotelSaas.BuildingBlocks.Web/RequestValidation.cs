@@ -1,6 +1,6 @@
 using FluentValidation;
 using FluentValidation.Results;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 
 namespace HotelSaas.BuildingBlocks.Web;
 
@@ -17,7 +17,12 @@ public static class RequestValidation
     //     {
     //         return problem;
     //     }
-    public static IResult? Validate<T>(IValidator<T> validator, T instance)
+    //
+    // Only needed where a command is assembled from several sources (route +
+    // body) and so never appeared as a single action argument for
+    // FluentValidationFilter to see. Everything else is validated by the
+    // filter and never calls this.
+    public static ObjectResult? Validate<T>(IValidator<T> validator, T instance)
     {
         ArgumentNullException.ThrowIfNull(validator);
 
@@ -35,11 +40,11 @@ public static class RequestValidation
         Microsoft.AspNetCore.Mvc.ProblemDetails problem =
             ProblemDetailsFactory.CreateValidation(errors);
 
-        return Results.Problem(
-            title: problem.Title,
-            statusCode: problem.Status,
-            type: problem.Type,
-            extensions: problem.Extensions);
+        return new ObjectResult(problem)
+        {
+            StatusCode = problem.Status,
+            ContentTypes = { "application/problem+json" },
+        };
     }
 
     // FluentValidation reports PropertyName in PascalCase, but the JSON the

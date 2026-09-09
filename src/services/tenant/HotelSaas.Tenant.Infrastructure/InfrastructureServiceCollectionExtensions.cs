@@ -1,3 +1,4 @@
+using FluentValidation;
 using HotelSaas.BuildingBlocks.Application;
 using HotelSaas.BuildingBlocks.Persistence;
 using HotelSaas.Tenant.Application.Abstractions;
@@ -73,6 +74,19 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ActivateBusinessHandler>();
         services.AddScoped<ArchiveBusinessHandler>();
         services.AddScoped<SearchBusinessesHandler>();
+
+        // Registered BOTH as the concrete type (for the two actions that
+        // assemble a command from route + body and validate explicitly) and
+        // as IValidator<T> (for the global FluentValidationFilter, which
+        // looks the validator up by the argument's runtime type).
+        //
+        // Scanned by assembly, unlike the handlers above. The distinction is
+        // deliberate: a validator is a leaf object with no dependencies, so
+        // there is nothing for reflection to hide. A handler has five
+        // injected services, and a missing one should fail at startup rather
+        // than on a customer request.
+        services.AddValidatorsFromAssemblyContaining<RegisterBusinessValidator>(
+            lifetime: ServiceLifetime.Scoped);
 
         services.AddScoped<RegisterBusinessValidator>();
         services.AddScoped<VerifyEmailValidator>();

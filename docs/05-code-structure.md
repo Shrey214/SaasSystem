@@ -171,6 +171,31 @@ Tiers move **upward** freely: if `guest` grows real invariants, promoting
 dependency rule was never broken. That is the point of choosing the rule
 over the ceremony.
 
+### 2.4b Controllers, not minimal APIs
+
+The HTTP surface is **MVC controllers** with attribute routing, not minimal
+API endpoint groups. `[ApiController]` + `[HttpPost("{id:guid}/verify-email")]`,
+returning `ActionResult<T>`.
+
+The reason is filters. Validation, idempotency, authorization and audit are
+all cross-cutting, and MVC gives them a first-class place to live - an
+`IAsyncActionFilter` registered once, applying to every action in all 14
+services. In minimal APIs the equivalent is an endpoint filter attached
+per-endpoint or per-group, which is the version that gets forgotten on the
+fortieth endpoint.
+
+Two consequences worth knowing, both discovered the hard way:
+
+- `[ApiController]` emits its **own** `ValidationProblemDetails` on a
+  model-state failure - a second error shape in the same service. It must be
+  **replaced** via `ApiBehaviorOptions.InvalidModelStateResponseFactory`, not
+  suppressed. Suppressing it stops the short-circuit, so the action then runs
+  with a `null` argument and dies of an `ArgumentNullException` - a 500 for
+  the caller's typo.
+- `SuppressMapClientErrors = true`, so a bare `NotFound()` is not silently
+  reshaped into the framework's `ProblemDetails`. Every problem response in
+  the system comes from `ProblemDetailsFactory`.
+
 ### 2.5 Commands go through the domain, queries do not
 
 Within a Full-tier service, reads and writes are treated differently —
@@ -266,7 +291,7 @@ Feature: *a business owner registers their business*
 | `Infrastructure/Persistence/Configurations/BusinessConfiguration.cs` | Infrastructure | table name, columns, indexes, constraints — EF mapping lives here, never as attributes on the domain entity |
 | `Infrastructure/Persistence/Repositories/BusinessRepository.cs` | Infrastructure | implements the interface |
 | `Infrastructure/Migrations/*` | Infrastructure | generated. Never hand-edited |
-| `Api/Endpoints/BusinessEndpoints.cs` | Api | `POST /api/v1/businesses` → sends the command → maps `Result` to HTTP |
+| `Api/Controllers/BusinessesController.cs` | Api | `POST /api/v1/businesses` → sends the command → maps `Result` to `ActionResult` |
 | `Api/Program.cs` | Api | wires it all up |
 | `tests/.../RegisterBusinessTests.cs` | tests | the rules, no database |
 | `tests/.../RegisterBusinessEndpointTests.cs` | tests | real HTTP, real PostgreSQL |
@@ -630,7 +655,7 @@ app.UseMiddleware<ExceptionHandlingMiddleware>(); // 2. wraps everything after i
 app.UseAuthentication();                          // 3. who
 app.UseAuthorization();                           // 4. may they
 app.UseMiddleware<TenantContextMiddleware>();     // 5. needs claims from 3
-app.MapEndpoints();
+app.MapControllers();
 ```
 
 Correlation is first so an exception already has an id to log. Exception
@@ -728,6 +753,7 @@ compiler in it.
 |---|---|---|
 | project | `HotelSaas.<Service>.<Layer>` | `HotelSaas.Booking.Application` |
 | namespace | matches folders | `HotelSaas.Booking.Application.Holds.CreateHold` |
+| controller | `<Plural>Controller` | `BusinessesController`, `PlatformBusinessesController` |
 | shared library | `HotelSaas.BuildingBlocks.<Concern>` | `HotelSaas.BuildingBlocks.Web` |
 | database | `hs_<service>` | `hs_booking` |
 | container | `hs-<service>-api` | `hs-booking-api` |

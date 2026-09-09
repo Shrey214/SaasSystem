@@ -17,6 +17,12 @@ internal static partial class WebLogMessages
         Guid? correlationId);
 
     [LoggerMessage(
+        EventId = 2003,
+        Level = LogLevel.Warning,
+        Message = "Malformed request on {Method} {Path}: {Reason}")]
+    public static partial void BadRequest(ILogger logger, string method, string path, string reason);
+
+    [LoggerMessage(
         EventId = 2002,
         Level = LogLevel.Error,
         Message = "Exception occurred after the response had started; cannot write a problem response for {ErrorId}")]

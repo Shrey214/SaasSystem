@@ -90,9 +90,9 @@ src/services/tenant/
 │
 └── HotelSaas.Tenant.Api/                  <- the entry point
     ├── Program.cs                         middleware order + startup
-    ├── Endpoints/BusinessEndpoints.cs     public + /me
-    ├── Endpoints/PlatformEndpoints.cs     platform admin
-    ├── Endpoints/OperationalEndpoints.cs  health / ready / boom
+    ├── Controllers/BusinessesController.cs          public + /me
+    ├── Controllers/PlatformBusinessesController.cs  platform admin
+    ├── Controllers/OperationsController.cs          health / ready / boom
     ├── Dockerfile
     └── tenant.http                        clickable smoke test
 
@@ -521,7 +521,11 @@ STEP BY STEP
         Resolves no tenant - this endpoint is public. Correct: there is no
         tenant yet, the request is CREATING one.
 
- 4. RegisterBusinessValidator  (FluentValidation)
+ 4. FluentValidationFilter -> RegisterBusinessValidator
+        A GLOBAL action filter, not three lines in the controller. It looks
+        up IValidator<T> for each action argument by runtime type, so adding
+        a validator is what switches validation on for a command - no
+        wiring, no attribute. An argument with no validator is skipped.
         legalName    not empty, <= 200
         ownerEmail   not empty, valid email, <= 320
         ownerName    not empty, <= 200
@@ -837,7 +841,7 @@ WRITES load the aggregate and call a method on it.
         Walks the stack for the first HotelSaas.* frame. The top frame is
         nearly always framework internals, which is true and useless.
         Verified: fault_assembly = HotelSaas.Tenant.Api,
-                  fault_method  = <MapOperationalEndpoints>b__0_2,
+                  fault_method  = Boom,
                   fault_line    = 60
 
  5. errorLogWriter.Enqueue(entry)

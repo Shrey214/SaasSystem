@@ -48,6 +48,20 @@ public sealed class ExceptionHandlingMiddleware(
 
     private async Task HandleAsync(HttpContext context, Exception exception, long startedAt)
     {
+        // Malformed JSON, a missing required parameter, an unparseable route
+        // value: the framework raises these as exceptions, but they are the
+        // CALLER's mistake, not ours.
+        //
+        // Treating them as 500 is wrong twice over: the client is told to
+        // contact support about their own typo, and error_logs fills up with
+        // other people's bad requests, burying the real faults. This was
+        // observed for real - a missing ?limit= returned 500.
+        if (exception is BadHttpRequestException badRequest)
+        {
+            await HandleBadRequestAsync(context, badRequest).ConfigureAwait(false);
+            return;
+        }
+
         Guid errorId = Uuid7.New();
         Guid? correlationId = CorrelationIdMiddleware.GetCorrelationId(context);
 
@@ -87,6 +101,36 @@ public sealed class ExceptionHandlingMiddleware(
 
         context.Response.Clear();
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/problem+json";
+
+        await context.Response
+            .WriteAsJsonAsync(problem, problem.GetType(), options: null, contentType: "application/problem+json")
+            .ConfigureAwait(false);
+    }
+
+    private async Task HandleBadRequestAsync(HttpContext context, BadHttpRequestException exception)
+    {
+        // Logged at Warning, not Error, and never written to error_logs.
+        WebLogMessages.BadRequest(logger, context.Request.Method, context.Request.Path.Value ?? "/", exception.Message);
+
+        if (context.Response.HasStarted)
+        {
+            return;
+        }
+
+        Error error = Error.Validation(
+            "malformed_request",
+
+            // The framework's message names the parameter or the JSON path,
+            // which is genuinely useful to a developer and reveals nothing.
+            environment.IsDevelopment()
+                ? exception.Message
+                : "The request could not be read. Check the body and the query string.");
+
+        ProblemDetails problem = ProblemDetailsFactory.Create(error, context);
+
+        context.Response.Clear();
+        context.Response.StatusCode = problem.Status ?? StatusCodes.Status400BadRequest;
         context.Response.ContentType = "application/problem+json";
 
         await context.Response
