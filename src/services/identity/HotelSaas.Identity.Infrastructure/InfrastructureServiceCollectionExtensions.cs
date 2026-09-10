@@ -1,6 +1,12 @@
+using FluentValidation;
 using HotelSaas.BuildingBlocks.Application;
 using HotelSaas.BuildingBlocks.Persistence;
+using HotelSaas.Identity.Application.Abstractions;
+using HotelSaas.Identity.Application.Access.AcceptInvitation;
+using HotelSaas.Identity.Application.Access.CreateOwnerInvitation;
+using HotelSaas.Identity.Application.Access.Login;
 using HotelSaas.Identity.Infrastructure.Persistence;
+using HotelSaas.Identity.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -28,6 +34,26 @@ public static class InfrastructureServiceCollectionExtensions
             .UseSnakeCaseNamingConvention());
 
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<IdentityServiceDbContext>());
+
+        services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
+
+        services.AddScoped<IUserAccounts, UserAccounts>();
+        services.AddScoped<IInvitationRepository, InvitationRepository>();
+        services.AddScoped<IMembershipRepository, MembershipRepository>();
+        services.AddScoped<ISigningKeyStore, SigningKeyStore>();
+        services.AddScoped<IAccessTokenIssuer, JwtAccessTokenIssuer>();
+
+        services.AddScoped<CreateOwnerInvitationHandler>();
+        services.AddScoped<AcceptInvitationHandler>();
+        services.AddScoped<LoginHandler>();
+
+        // Validators by assembly scan, handlers explicitly - a validator is
+        // a leaf object with nothing for reflection to hide, a handler has
+        // injected dependencies that should fail at startup if missing.
+        services.AddValidatorsFromAssemblyContaining<LoginValidator>(ServiceLifetime.Scoped);
+        services.AddScoped<AcceptInvitationValidator>();
+        services.AddScoped<CreateOwnerInvitationValidator>();
+        services.AddScoped<LoginValidator>();
 
         AddIdentityCore(services);
 

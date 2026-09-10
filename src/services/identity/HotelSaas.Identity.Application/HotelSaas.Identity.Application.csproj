@@ -5,6 +5,10 @@
     <ProjectReference Include="..\..\..\BuildingBlocks\HotelSaas.BuildingBlocks.Application\HotelSaas.BuildingBlocks.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
   <PropertyGroup>
   </PropertyGroup>
 
